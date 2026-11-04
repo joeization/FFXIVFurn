@@ -1,0 +1,2 @@
+# Optional staging pipeline image decoding/verification; base catalog remains stdlib-only.
+Pillow>=10

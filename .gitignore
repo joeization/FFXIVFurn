@@ -1,0 +1,44 @@
+# Python / local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+/build/
+/dist/
+
+# Private configuration / logs
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
+
+# Local-only data, extracted resources, generated artifacts and work notes
+/data/
+/runs/
+/outputs/
+/tools/
+/spikes/
+/tasks/
+/HANDOFF.md
+
+# No databases anywhere in the source distribution (including sidecars/backups)
+*.[dD][bB]
+*.[dD][bB]-*
+*.[dD][bB].*
+*.[sS][qQ][lL][iI][tT][eE]*
+
+# Native extracted / packaged copyrighted resources anywhere
+*.[uU][aA][sS][sS][eE][tT]
+*.[uU][eE][xX][pP]
+*.[uU][bB][uU][lL][kK]
+*.[uU][mM][aA][pP]
+*.[pP][aA][kK]
+*.[uU][tT][oO][cC]
+*.[uU][cC][aA][sS]

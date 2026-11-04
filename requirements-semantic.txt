@@ -1,0 +1,3 @@
+# Optional: base CRUD remains Python standard-library only.
+fastembed>=0.9.1,<0.10
+sqlite-vec>=0.1.9,<0.2

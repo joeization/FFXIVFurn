@@ -1,0 +1,30 @@
+# Normalize source text only; do not transcode UTF-16 layout JSON or native resources.
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+requirements*.txt text eol=lf
+/.gitignore text eol=lf
+/.gitattributes text eol=lf
+
+# Source archives must not contain local runtime data, even if force-added.
+/data export-ignore
+/outputs export-ignore
+/runs export-ignore
+/tools export-ignore
+/spikes export-ignore
+/tasks export-ignore
+/HANDOFF.md export-ignore
+/.venv export-ignore
+/.env export-ignore
+/.env.* export-ignore
+/build export-ignore
+/dist export-ignore
+*.[dD][bB]* export-ignore
+*.[sS][qQ][lL][iI][tT][eE]* export-ignore
+*.[uU][aA][sS][sS][eE][tT] export-ignore
+*.[uU][eE][xX][pP] export-ignore
+*.[uU][bB][uU][lL][kK] export-ignore
+*.[uU][mM][aA][pP] export-ignore
+*.[pP][aA][kK] export-ignore
+*.[uU][tT][oO][cC] export-ignore
+*.[uU][cC][aA][sS] export-ignore
