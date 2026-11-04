@@ -31,7 +31,7 @@ FRAGMENT = '''
 #version 330
 uniform sampler2D tex; uniform int cutout; uniform int mode; uniform vec3 base; uniform vec3 tint; uniform int use_tint; uniform ivec2 tsize; uniform int obj_id;
 in vec2 v_uv; in float v_shade; in float v_depth; in vec3 v_pos; in vec3 v_nrm;
-uniform int lit; uniform vec3 eye_pos; uniform vec3 ambient_lo; uniform vec3 ambient_hi; uniform int n_lights; uniform vec4 light_pos[64]; uniform vec4 light_col[64]; uniform vec3 emissive; uniform float exposure;
+uniform int lit; uniform vec3 eye_pos; uniform vec3 ambient_lo; uniform vec3 ambient_hi; uniform int n_lights; uniform vec4 light_pos[64]; uniform vec4 light_col[64]; uniform vec3 emissive; uniform float exposure; uniform float alpha;
 layout(location=0) out vec4 o_rgb; layout(location=1) out vec4 o_id; layout(location=2) out float o_depth;
 vec3 lin(vec3 v){ return mix(pow((v + 0.055) / 1.055, vec3(2.4)), v / 12.92, lessThanEqual(v, vec3(0.04045))); }
 vec3 srgb(vec3 v){ return mix(1.055 * pow(max(v, 0.0), vec3(1.0 / 2.4)) - 0.055, v * 12.92, lessThanEqual(v, vec3(0.0031308))); }
@@ -66,7 +66,7 @@ void main(){
         col = srgb(c * v_shade);
     } else if (mode == 1) col = srgb(base * v_shade);       // base = linear(flat_color)
     else col = base * v_shade;                                // grey fallback is applied in display space
-    o_rgb = vec4(clamp(col, 0.0, 1.0), 1.0);
+    o_rgb = vec4(clamp(col, 0.0, 1.0), alpha);
     o_id = vec4(float(obj_id & 255) / 255.0, float(obj_id >> 8) / 255.0, 0.0, 1.0);
     o_depth = v_depth;
 }
@@ -148,7 +148,14 @@ def render_gpu(meshes, camera, path, *, size=(960, 640), near=.1, approximate_ti
         lp = np.zeros((64, 4), 'f4'); lc = np.zeros((64, 4), 'f4')
         for k, l in enumerate(L): lp[k] = [*l['pos'], l.get('radius', 3.0)]; lc[k, :3] = np.asarray(l['color'], float) * l.get('intensity', 1.0)
         prog['light_pos'].write(lp.tobytes()); prog['light_col'].write(lc.tobytes())
-    input_faces = 0; clipped = 0
+    input_faces = 0; clipped = 0; translucent = []
+    prog['alpha'].value = 1.0
+    def draw(m, mesh):
+        prog['emissive'].value = tuple(float(x) for x in mesh.get('emissive', (0, 0, 0))) if lighting else (0, 0, 0)
+        prog['cutout'].value = int(m['cutout']); prog['mode'].value = m['mode']; prog['base'].value = m['base']; prog['obj_id'].value = m['id']; prog['tsize'].value = m['tsize']
+        use_tint = bool(approximate_tint and m['tint'] is not None); prog['use_tint'].value = int(use_tint); prog['tint'].value = m['tint'] if use_tint else (1.0, 1.0, 1.0)
+        if m['texture'] is not None: m['texture'].use(0); prog['tex'].value = 0
+        m['vao'].render(moderngl.TRIANGLES)
     for index, mesh in enumerate(meshes):
         if camera.get('cutaway') and mesh.get('role') in ('enclosure', 'upper_enclosure'): continue
         if mesh.get('role') == 'void' and not camera.get('cutaway'): continue   # walled-off floor marker: plan cutaways only
@@ -165,11 +172,17 @@ def render_gpu(meshes, camera, path, *, size=(960, 640), near=.1, approximate_ti
         if m is None: continue
         input_faces += m['triangles']
         zc = (m['world'] - eye) @ basis[2]; zt = zc[m['tri']]; clipped += int(((zt.min(axis=1) < near) & (zt.max(axis=1) >= near)).sum())   # statistic only; the GPU does the clipping
-        prog['emissive'].value = tuple(float(x) for x in mesh.get('emissive', (0, 0, 0))) if lighting else (0, 0, 0)
-        prog['cutout'].value = int(m['cutout']); prog['mode'].value = m['mode']; prog['base'].value = m['base']; prog['obj_id'].value = m['id']; prog['tsize'].value = m['tsize']
-        use_tint = bool(approximate_tint and m['tint'] is not None); prog['use_tint'].value = int(use_tint); prog['tint'].value = m['tint'] if use_tint else (1.0, 1.0, 1.0)
-        if m['texture'] is not None: m['texture'].use(0); prog['tex'].value = 0
-        m['vao'].render(moderngl.TRIANGLES)
+        if (mesh.get('material') or {}).get('glass'):
+            translucent.append((float(np.mean(zc)), m, mesh)); continue
+        draw(m, mesh)
+    if translucent:
+        # Glass/rain: blend over the opaque image back-to-front; colour only (ID and linear-depth targets keep what is behind), no depth writes.
+        fbo.color_mask = ((True, True, True, False), (False, False, False, False), (False, False, False, False))
+        ctx.enable(moderngl.BLEND); ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA; ctx.depth_mask = False
+        for _, m, mesh in sorted(translucent, key=lambda t: -t[0]):
+            prog['alpha'].value = float(mesh['material'].get('glass_alpha', 0.2)); draw(m, mesh)
+        prog['alpha'].value = 1.0; ctx.disable(moderngl.BLEND); ctx.depth_mask = True
+        fbo.color_mask = ((True, True, True, True),) * 3
     rgba = np.frombuffer(fbo.read(components=4, attachment=0, dtype='f1'), np.uint8).reshape(height, width, 4)[::-1]
     idc = np.frombuffer(fbo.read(components=4, attachment=1, dtype='f1'), np.uint8).reshape(height, width, 4)[::-1]
     depth = np.frombuffer(fbo.read(components=1, attachment=2, dtype='f4'), np.float32).reshape(height, width)[::-1]

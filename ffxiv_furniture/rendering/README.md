@@ -52,7 +52,8 @@ Generate diagnostics with `--artifacts` first. Older file-based review tools may
 ## Remaining limitations
 
 - Base/Tint, alpha clipping, and approximate ambient lighting do not reproduce complete parent-material graphs.
-- Transparent glass, water, native emission/particles, reflections, and game sunlight/shadows are incomplete.
+- Material effects now covered approximately: slots bound directly to `M_MasterGlass`/`M_Rain` draw as a pale translucent pane in a blended pass (colour only; the ID/depth buffers keep what is behind; no refraction or reflection). `M_MasterEmissive*` slots carry their own emissive colour (whole-slot masters at full strength, masked variants at 0.6 because the mask channel is not decoded), so a lamp's bulb/shade glows and its body does not; objects without an emissive slot keep the name-based glow. `M_MasterOpacityMaskTwoSided` and `M_FoliageVertexColor` are alpha-cut like other foliage. Tint-family MIs that omit `Tint` use the master's default, decoded from the extracted master material (`Content/Materials/M_MasterTint*.uasset`, `DT_MasterMats/M_bgColorChange`; extract them with `retoc to-legacy --filter /Materials/<name>`). An MI whose property layout is unsupported falls back to its single `_d` texture import, with a `guessed` warning. Phasmascapes show their scene layer statically (no scroll/overlay).
+- Still missing: water/particles, masked-emissive masks, reflections, and game sunlight/shadows (ReMakePlace is the reference for lighting).
 - Wallpaper/ceiling/basement application has gaps for some house types. Check each house/style rather than assuming uniform support.
 - Native local transforms, geometry projections, and support/circulation diagnostics do not verify app import, character collision, sitting, floating persistence after re-entry, or plot world coordinates.
 - User app screenshots are ground truth for a particular design. Old prototype test counts/timings are not current performance guarantees.

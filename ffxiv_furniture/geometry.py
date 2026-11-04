@@ -4,6 +4,8 @@ Accept only matching position/tangent/UV buffers plus an independently stored
 FBoxSphereBounds followed by the UE5.3 eight cooked screen-size records.
 """
 from __future__ import annotations
+import copy
+import functools
 import hashlib
 import math
 from pathlib import Path
@@ -19,6 +21,18 @@ def _screen_sizes(data,offset):
 
 
 def read_static_mesh_bounds(uexp_path):
+    """Parse (memoised per process): keyed by the given path + size/mtime of the .uexp and .uasset, so edited or re-extracted files are re-read.
+    Returns a fresh copy each call because callers annotate records (item_id, ...)."""
+    path=Path(uexp_path);a=path.stat();b=path.with_suffix('.uasset').stat()
+    return copy.deepcopy(_read_static_mesh_bounds_cached(str(path),a.st_mtime_ns,a.st_size,b.st_mtime_ns,b.st_size))
+
+
+@functools.lru_cache(maxsize=4096)
+def _read_static_mesh_bounds_cached(path,_m1,_s1,_m2,_s2):
+    return _read_static_mesh_bounds_uncached(path)
+
+
+def _read_static_mesh_bounds_uncached(uexp_path):
     path=Path(uexp_path);data=path.read_bytes();header=path.with_suffix('.uasset').read_bytes()
     if b'StaticMesh\0' not in header or data[-4:]!=bytes.fromhex('c1832a9e'):
         raise ValueError('Not a supported legacy static-mesh package')

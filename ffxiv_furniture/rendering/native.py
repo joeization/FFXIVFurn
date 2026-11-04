@@ -58,9 +58,15 @@ class Reader:
 
 def _scan_material_instance(r,imp,parent,table,path):
     """Fallback for material instances with extra serialized properties we cannot skip: scan for FMaterialParameterValue structs.
-    Accepts texture params Base/Normal/Specular/DiffuseA/DiffuseB (valid Texture2D import) and vector params Tint/FixedTint/EmissiveColor (4 finite floats). Everything else is ignored."""
-    data=r.data;values={};pos=r.pos;tex_names={'Base','Normal','Specular','DiffuseA','DiffuseB'};vec_names={'Tint','FixedTint','EmissiveColor'}   # DiffuseA/B: M_bgUvScroll two-layer albedo (Phasmascape scenes)
+    Accepts texture params Base/Normal/Specular/DiffuseA/DiffuseB (valid Texture2D import) and vector params Tint/FixedTint/EmissiveColor/EmissiveTint (4 finite floats). Everything else is ignored."""
+    data=r.data;values={};pos=r.pos;tex_names={'Base','Normal','Specular','DiffuseA','DiffuseB'};vec_names={'Tint','FixedTint','EmissiveColor','EmissiveTint'}   # DiffuseA/B: M_bgUvScroll two-layer albedo (Phasmascape scenes)
+    # Exact prefilter: a struct header decoding to fields [0,1,2] must start with a word whose low 7 bits are 0 and whose count (v>>9) is >=1,
+    # i.e. byte0&0x7f==0 and byte1>=2. Only those offsets are tried (was every byte; ~20x faster on cold renders).
+    arr=np.frombuffer(data,np.uint8);cand=np.flatnonzero(((arr[:-1]&0x7f)==0)&(arr[1:]>=2));ci=0
     while pos<len(data)-24:
+        ci=int(np.searchsorted(cand,pos,side='left'),) if ci>=len(cand) or cand[ci]<pos else ci
+        if ci>=len(cand) or cand[ci]>=len(data)-24:break
+        pos=int(cand[ci]);ci+=1
         q=Reader(data,r.names);q.pos=pos
         try:
             fields,zero=q.header()
@@ -82,7 +88,35 @@ def _scan_material_instance(r,imp,parent,table,path):
     return {'parent':parent['resolved'],'parameters':values,'parsed_prefix_bytes':r.pos,'remaining_native_properties_not_decoded':-1,'source_sha256':hashlib.sha256(data).hexdigest(),'scanned':True}
 
 
+@__import__('functools').lru_cache(maxsize=64)
+def master_default_tint(path):
+    """Default `Tint` of a cooked master material (M_MasterTint*, M_bgColorChange, ...), used when an MI omits Tint.
+    Cooked UE5.3 masters store their default vector right after a fixed parameter record ending in floats (0.171875, 1.0) plus 8 bytes;
+    the record repeats (cached expression data, uniform buffers), so accept only if every occurrence agrees. None when absent/ambiguous.
+    Verified on the six extracted housing masters (browns for Tint masters, white for colour-change masters)."""
+    path=Path(path)
+    if not path.with_suffix('.uexp').exists():return None
+    d=path.with_suffix('.uexp').read_bytes();marker=struct.pack('<2f',0.171875,1.0);vals=[];i=d.find(marker)
+    while i>=0 and i+32<=len(d):
+        v=struct.unpack_from('<4f',d,i+16)
+        if all(math.isfinite(x) and 0.0<=x<=1.0 for x in v[:3]):vals.append(tuple(round(x,6) for x in v[:3]))
+        i=d.find(marker,i+1)
+    return list(vals[0]) if len(vals)>=2 and len(set(vals))==1 else None
+
+
 def material_instance(path):
+    """Memoised per process (keyed by path + size/mtime of .uasset/.uexp); returns a deep copy so callers cannot corrupt the cache."""
+    import copy
+    path=Path(path);a=path.stat();b=path.with_suffix('.uexp').stat()
+    return copy.deepcopy(_material_instance_cached(str(path),a.st_mtime_ns,a.st_size,b.st_mtime_ns,b.st_size))
+
+
+@__import__('functools').lru_cache(maxsize=8192)
+def _material_instance_cached(path,_m1,_s1,_m2,_s2):
+    return _material_instance_uncached(Path(path))
+
+
+def _material_instance_uncached(path):
     table=tables.map_tables(path);imp={x['index']:x for x in table['imports']};r=Reader(path.with_suffix('.uexp').read_bytes(),names(path))
     fields,zero=r.header()
     if not fields or fields[0]!=10 or zero:raise ValueError('Unsupported material instance property layout')

@@ -119,10 +119,26 @@ class Assets:
             entry={'native_reference':material['resolved'],'texture':None,'warning':None,'tint':None}
             try:
                 package=material['resolved'].split('.')[0]
+                _master=package.rsplit('/',1)[-1]
+                if package.startswith('/Game/Materials/') and _master in ('M_MasterGlass','M_Rain'):
+                    # Slot bound straight to a translucent master (not extracted, no parameters): draw as a pale see-through pane.
+                    entry.update(glass=True,glass_alpha=0.22 if _master=='M_MasterGlass' else 0.12,flat_color=(0.80,0.88,0.92),parent=material['resolved'],
+                                 warning=f'{_master}: translucent approximation (no refraction/reflection)')
+                    decoded.append(entry);continue
                 # Package paths, not file stems with FName numeric suffixes, identify the actual asset.
                 content=next(p for p in path.parents if p.name=='Content')
                 mp=find_asset(content,package,dependencies)
-                mi=native.material_instance(mp);base=mi['parameters'].get('Base')
+                guessed=None
+                try:mi=native.material_instance(mp)
+                except (ValueError,KeyError,struct.error,IndexError) as mi_error:
+                    # Unsupported MI property layout: if the MI imports exactly one albedo (_d) texture, use it as Base instead of a flat colour.
+                    imps=native.tables.map_tables(mp)['imports']
+                    ds=sorted({x['resolved'] for x in imps if x['class']=='Texture2D' and x['resolved'].split('.')[-1].endswith('_d')})
+                    if len(ds)!=1:raise
+                    par=next((x['resolved'] for x in imps if x['class']=='Material'),None)
+                    mi={'parent':par,'parameters':{'Base':{'kind':'texture','value':ds[0]}},'source_sha256':hashlib.sha256(mp.with_suffix('.uexp').read_bytes()).hexdigest()}
+                    guessed=f'MI layout unsupported ({mi_error}); base guessed from its only _d texture import'
+                base=mi['parameters'].get('Base')
                 uv_layer=None
                 if base is None and (mi['parent'] or '').split('.')[-1]=='M_bgUvScroll':
                     # Two-layer UV-scroll albedo has no Base: on the inspected Phasmascapes DiffuseB is the scene picture
@@ -137,16 +153,28 @@ class Assets:
                 if not target.exists():image.save(target)
                 tex=np.asarray(image.convert('RGBA'));dye=self.dyes.get(item_id);dyed=False
                 parent=(mi['parent'] or '').split('/')[-1].split('.')[0];params=mi['parameters']
-                if parent in ('M_MasterFoliageSpec','M_MasterFoliage','M_MasterOpacityMask'):entry['cutout']=True   # Base alpha is opacity here
+                if parent in ('M_MasterFoliageSpec','M_MasterFoliage','M_MasterOpacityMask','M_MasterOpacityMaskTwoSided','M_FoliageVertexColor'):entry['cutout']=True   # Base alpha is opacity here
                 elif parent.startswith('M_bg') and (tex[...,3]<32).mean()>0.10 and ((tex[...,3]>=32)&(tex[...,3]<=224)).mean()<0.10:entry['cutout']=True   # housing-bg masked leaves/lattices: bimodal alpha with large holes = opacity (data-driven; alpha elsewhere is a dye mask)
                 if self.mi_tint:
                     def _s(v):return [float(_srgb(np.asarray(max(0.0,min(1.0,x)))) )*255 for x in v[:3]]
+                    if parent in ('M_MasterTint','M_MasterTintMask','M_bgColorChange','M_MasterEmissiveTintMask') and 'Tint' not in params and color is None and mi['parent']:
+                        # MI omits Tint: use the master's own default (decoded from the extracted master material when available)
+                        try:_mp=find_asset(content,mi['parent'].split('.')[0],dependencies);_dt=native.master_default_tint(_mp)
+                        except (FileNotFoundError,ValueError,StopIteration):_dt=None
+                        if _dt is not None:params=dict(params,Tint={'kind':'vector','value':[*_dt,1.0]});entry['mi_tint_source']='parent-default'
                     if parent in ('M_MasterTint','M_MasterTintMask','M_bgColorChange','M_MasterEmissiveTintMask') and ('Tint' in params or color is not None):   # the MI may omit Tint (default lives in the parent material); an explicit dye still applies
                         tex=apply_default_dye(tex,list(color) if color is not None else _s(params['Tint']['value']));entry['mi_tint']=params['Tint']['value'][:3] if 'Tint' in params else 'parent-default';entry['instance_dye']=list(color) if color is not None else None;dye=None
                     elif 'FixedTint' in params:
                         b=_lin(tex[...,:3].astype(float)/255)*np.asarray(params['FixedTint']['value'][:3],float);r=tex.copy();r[...,:3]=np.clip(_srgb(b)*255+.5,0,255).astype(np.uint8);tex=r;entry['mi_fixed_tint']=params['FixedTint']['value'][:3];dye=None
                 if not self.mi_tint and dye is not None and ('Tint' in mi['parameters'] or 'RefractionDepthBias' in mi['parameters']):   # dye-capable master-material permutation (book slots / armchair have neither)
                     tex=apply_default_dye(tex,dye);dyed=True
+                if parent.startswith('M_MasterEmissive'):
+                    # Emissive masters: whole-slot emitters (bulbs, flames) glow fully; masked variants (shade/panel where a texture channel
+                    # limits the glow, mask not decoded) glow at 0.6 so the slot reads lit without flooding its unlit parts.
+                    _ev=next((params[k]['value'] for k in ('EmissiveTint','EmissiveColor') if params.get(k,{}).get('kind')=='vector'),(1.0,.85,.6))
+                    _m=max(max(_ev[:3]),1e-6);_f=1.0 if parent in ('M_MasterEmissive','M_MasterEmissiveFixedTint','M_MasterEmissiveTint') else 0.6
+                    entry['emissive']=tuple(_f*float(max(0.0,c))/_m for c in _ev[:3])
+                if guessed:entry['warning']=guessed
                 if uv_layer:entry['uv_scroll_layer']=uv_layer;entry['warning']=f'M_bgUvScroll: static {uv_layer} layer only (scroll/overlay blend not rendered)'
                 entry.update(texture=tex,texture_cache=str(target),texture_sources=metadata['source_file_hashes'],dyed_with=list(dye) if dyed else None,
                     material_source_sha256=mi['source_sha256'],parent=mi['parent'],tint=mi['parameters'].get('Tint',{}).get('value'))

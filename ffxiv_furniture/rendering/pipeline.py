@@ -386,8 +386,13 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             elif 'wall' in nm or 'sconce' in nm:col,inten,rad=(1.0,.75,.45),1.4,1.7
             else:col,inten,rad=(1.0,.78,.5),1.3,1.5
             lights.append({'pos':pos,'color':list(col),'intensity':inten*mood['scale'],'radius':rad});emit[oid]=tuple(.8*x for x in col)
+        # Material-driven glow first: objects with whole-slot emissive masters glow only on those slots (bulb/flame, not the lamp body);
+        # objects without one keep the name-based whole-object glow.
+        slot_glow={m['id'] for m in meshes if (m.get('material') or {}).get('emissive')}
         for m in meshes:
-            if m['id'] in emit:m['emissive']=emit[m['id']]
+            me=(m.get('material') or {}).get('emissive')
+            if me:m['emissive']=tuple(.8*float(c) for c in me)
+            elif m['id'] in emit and m['id'] not in slot_glow:m['emissive']=emit[m['id']]
         for _cz in light_sources:lights.append({'pos':[0.0,0.0,_cz-1.2],'color':[1.0,.85,.6],'intensity':1.5*mood['scale'],'radius':4.5})
         lights.sort(key=lambda l:-l['intensity']*l['radius']);lighting_cfg={'ambient_lo':list(mood['lo']),'ambient_hi':list(mood['hi']),'exposure':mood['exposure'],'lights':lights[:64]}
         warnings.append(f'Lighting: {len(lights)} point lights (lamps/lanterns/fires from furniture names + ceiling fixture), hemisphere ambient, wrap diffuse, NO shadows, no specular/normal maps, no GI, not the game shader. Approximate mood only.')
