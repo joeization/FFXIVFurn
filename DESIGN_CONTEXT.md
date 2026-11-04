@@ -1,6 +1,8 @@
-# From initial thinking to a complete interior: a reusable design workflow
+# From a brief to an editable space: a reusable design workflow
 
 > This is a design and implementation method, not a project diary or furniture recipe. Start with people's activities and spatial relationships, then select furniture, resolve construction, and add detail. Technical checks provide evidence; they do not replace the model's or user's design judgment.
+
+Use this method for FFXIV interiors, yards, and coordinated indoor/outdoor projects: homes, public venues, gardens, displays, role-play sets, and other spatial briefs. It is a methodological reference, not a claim that MCP or the renderer implements every representation, check, or technique described here. The shared method is reusable; project programs, preferences, capacities, and construction choices are not defaults for the next design.
 
 The workflow follows Studio Matrx's progression from brief to presentation, incorporating Make it Home's ergonomic and relational representations and Holodeck's semantic decomposition, asset selection, and relational placement into the same design steps.[1][2][3]
 
@@ -10,17 +12,56 @@ Section 11 retains HGXIV's in-game construction techniques. Section 12 gathers s
 
 SceneCritic contributes traceable object/relationship diagnostics and a division of labor between symbolic checks and image feedback.[11] AesthetiQ inspires relative aesthetic comparisons of actual rendered results. Its research concerns 2D graphic layouts, not 3D interiors; Section 9 defines the limits of this adaptation.[12]
 
+## Scope and adaptation: establish what this project needs
+
+Before applying a recommendation, distinguish four kinds of information:
+
+| Kind | How to use it |
+|---|---|
+| Verified conditions and binding requirements | Current geometry, asset eligibility, authorized budget, required interactions, and the user's explicit constraints. Record source and scope; resolve conflicts rather than pretending an impossible request passed. |
+| Project choices and preferences | Activities, mood, openness, privacy, density, symmetry, floor use, and inventory policy. Establish them for this brief; do not inherit them from an earlier cafe, home, or yard. |
+| Conditional heuristics and techniques | Backing seats, axial views, enclosed rooms, layered planting, custom ceilings, or time-shared routes. State the problem they solve, their costs, and when they do not apply. |
+| Evidence and uncertainty | What a measurement, image, export, or interaction test actually establishes. Unknown is not a failure or a pass; a preference is not a measurement. |
+
+An example explains a possible solution, not an additional requirement. In particular, this method does not require a bedroom, kitchen, service counter, greenery, scenic window, private teleport furnishing, concealed stairs, straight central aisle, or maximum-density layout. Nor does it require every floor to be furnished when the authorized scope excludes it. Apply a technique only when its role follows from the current brief.
+
+### Select the scope, purpose, and change mode separately
+
+| Decision | Adaptation |
+|---|---|
+| Interior | Survey occupied floors, openings, stairs where present, ceiling/beam conditions, and cross-floor bodies. Re-read affected geometry after a style change. |
+| Yard | Survey the actual plot, gate/approaches, house envelope, fixed or replaceable exterior fixtures, terrain, perimeter, relevant canopy heights, and neighboring views where they affect the composition. Check planting, access, and day/night conditions where the brief needs them; do not assume a yard is a cottage garden. |
+| Coordinated indoor/outdoor | State which scopes may change and which relationships cross the boundary. Track separate furnishing budgets and preserve out-of-scope payloads. |
+| New design | Establish a fresh brief and spatial concept within the chosen shell. Do not reskin another project's arrangement by default. |
+| Revision or constrained reuse | Start from the authorized saved revision. Identify approved elements, allowed edits, existing inventory, and invariants before changing anything; do not clear or redesign the whole scene by default. |
+| Assessment or proposal only | Inspect and diagnose without changing live state. Distinguish a suggested edit, a separately exported proposal, and permission to apply it to the working design. Finding a defect is not authorization to modify it. |
+| Functional venue, home, display, or set | Derive requirements from actual use. A display may prioritize viewing and deliberate empty space; a set may prioritize specified camera positions. Neither automatically needs domestic functions, but required interactions and any claimed walkable areas still need verification. |
+
+These decisions combine: a yard can be a public venue or a photographic set, and an interior can be a small revision rather than a new home. Mark irrelevant checks **not applicable with a reason**; keep relevant but untested checks **unverified**. A staged delivery must name the finished and unfinished areas, not imply the whole house is complete.
+
+For each requirement or diagnostic, record obligation (**required / preferred / optional**), applicability (**applies / not applicable with reason**), and evidence status separately. A preferred aesthetic is not a mandatory technical rule; an applicable but unverified interaction cannot be relabeled not applicable to make delivery look complete.
+
+### Set the project's decision boundaries
+
+- Confirm housing/plot type, permitted placement areas, actual design scope, region/client/patch availability, and the applicable furnishing and interaction limits. Record the policy source; historical guides, tool defaults, and another region's capacities are not authorization for this project. Do not transfer unused capacity between placement scopes unless the applicable rules explicitly permit it.
+- Establish whether assets may be purchased, substituted, duplicated, or only removed/rearranged. A no-new-items revision must preserve an authorized inventory subset, not merely reuse the same type names with extra copies. Include concealed/composite pieces in slot costs; keep structural-fixture rules distinct from furnishing counts.
+- Track placement slots, procurement/currency costs, owned inventory, storage, special interaction limits, and temporary construction requirements separately where relevant. Count final concealed components in the finished layout; do not mistake a temporary lifting/support tool for a permanent design component or ignore what the construction process needs.
+- Record protected geometry, functions, approved compositions, and unrelated payloads. For an existing layout, establish whether the app save, export, or MCP snapshot is authoritative; timestamps or familiar filenames alone do not settle conflicting revisions.
+- Separate desired behavior from symbolic appearance: an installation may only suggest a function, whereas a required seat, door, or teleport interaction needs an actual test. State any intentionally nonfunctional or inaccessible areas instead of presenting them as usable.
+- Preserve the common principles below while scaling effort to the change. A lamp adjustment does not require a new concept competition; a new organization does require more than moving props.
+- Keep diagnosis within authorization. If evidence is incomplete, disclose the gap and use another valid evidence source where available. Repairing a renderer, purchasing assets, changing fixtures, or applying a proposed redesign requires the appropriate task scope; do not silently expand a critique into implementation.
+
 ## Overall sequence
 
 ```text
 Users, activities, and success criteria (program)
-  → Understand the actual shell, fixed conditions, and tool boundaries
+  → Understand the actual site/shell, fixed conditions, and tool boundaries
   → Propose an organizing concept that changes decisions (parti)
   → Activity zones, adjacency, and routes (bubble diagram)
   → Compare distinct spatial frameworks (block plan)
   → Bind real furniture, activity areas, and support relationships (furniture plan)
-  → Resolve plan, elevations, sections, ceiling, and light together
-  → Complete functions, then add lived-in details
+  → Resolve plan, vertical relationships, boundaries, and light together
+  → Complete the required uses and experience, then add supporting detail
   → Diagnose separately, inspect actual images, revise the appropriate layer
   → Validate in the target app and deliver an editable design
 ```
@@ -29,38 +70,38 @@ This is an iterative convergence process, not a one-way pipeline. New furniture 
 
 ### Keep a flat plan in the loop
 
-Generate a measured flat plan of the empty or current shell before placing furniture, then mark activity zones and entrance-to-destination routes on a separate planning overlay. After each spatial edit batch, regenerate the plan and compare it with the previous revision before accepting the layout. Use plans to check junctions, operating fronts, seating approaches, doorway buffers and path-side lighting; do not wait until final export to discover these relationships. Planning and final images omit furniture inventories unless explicitly requested.
+Generate a measured flat plan of the empty or authorized current site/shell before placing furniture, then mark intended zones, relevant approaches, and entrance-to-destination routes on a planning overlay. Include required viewing positions for displays or sets; do not invent service lanes or domestic activities that the brief does not need. After each spatial edit batch, regenerate the plan and compare it with the previous revision before accepting the layout. Use plans to check junctions, operating fronts, seating approaches, arrival buffers, and path-side objects where applicable; do not wait until final export to discover these relationships. Planning and final images omit furniture inventories unless explicitly requested; implementation records still retain instance identities and budget evidence.
 
-Pair every plan review with a full overview and occupied eye-level views: crowns/branches, fixture heights, occlusion and material behavior cannot be verified from footprints alone. A yard overview must include the actual gate and perimeter, supplemented by inward and reverse entrance views. Gate, straight and corner fence components form one matched fixture set; do not redesign the gate independently. Keep low lamps outside passage envelopes, store firewood beside rather than across a well's operating approach, and move entrance seating into a usable off-route pocket. These are review scenarios, not blanket collision prohibitions; intentional embedding and planting overlap remain legal.
+Pair spatial plan reviews with an overview and relevant occupied eye-level or intended camera views: crowns/branches, fixture heights, occlusion, and material behavior cannot be verified from footprints alone. Cover the full scope with enough views to expose its boundaries and actual arrivals; a yard review includes its gate and perimeter, with inward and reverse entrance views where access matters. When a selected fixture family is a coupled set (such as gate, straight, and corner fence components), evaluate and change the set together, not just the visible fragment. Establish whether the coupling is a verified game/tool constraint or a requirement of this brief; aesthetic matching alone does not prove technical coupling. Check every required use face and route against the complete bodies of nearby objects, not just their pivots. A light beside a path, storage beside equipment, or seating near an arrival may work in many arrangements; choose by use, height, sightlines, and the brief rather than imposing a fixed furnishing recipe. Intentional embedding and planting overlap remain legal.
 
-## 1. Turn a theme into an activity brief
+## 1. Turn a theme into a use and experience brief
 
-"Cafe," "conservatory," and "modern home" describe types only. Identify who does what, when, with whom, and which activities conflict before deciding the space's shape. Programming establishes requirements first; it should not begin by choosing partitions and furniture forms.[5]
+"Cafe," "conservatory," "modern home," and "sculpture garden" describe types only. Identify who does what, when, with whom, and which activities conflict before deciding the space's shape. Viewing, photography, role-play, contemplation, and deliberately unoccupied space can be legitimate purposes too; a themed scene need not simulate a complete household. Programming establishes requirements first; it should not begin by choosing partitions and furniture forms.[5]
 
 ### Record the brief
 
 | Item | Questions to answer |
 |---|---|
-| Users and activities | Solitude, conversation, gatherings, reading, service, or display? How do people enter, stay, use, and leave? |
+| Users and activities | Solitude, conversation, gatherings, reading, service, display, gardening, or staging? Which visitors, characters, and cameras are relevant? How do they enter, stay, use/view, and leave? |
 | Essential/supporting/atmospheric | Which functions are indispensable? Which support them? Which can be reduced? |
 | Simultaneous use | Will staff, waiting guests, people pulling chairs out, and passersby occupy the same area at once? |
 | Success criteria | From which positions and use scenarios will requirements be verified? |
-| Boundaries | Floors in use, house type, patch, budget, exclusions, confirmed and unconfirmed assumptions. |
+| Boundaries | Site/shell and scope, change mode, floors/areas in use, region/patch, budgets, inventory, protected elements, exclusions, confirmed and unconfirmed assumptions. |
 
-Translate "open" into observable conditions: destinations are legible from the entrance, tall objects do not squeeze normal views from both sides, and activity areas remain complete. These are not furniture-count or empty-area targets. Ask only when the answer materially changes the design; otherwise record a revisable assumption.
+Translate adjectives into observable conditions for this project. "Open" might mean legible destinations and uninterrupted views; "intimate" might mean screened seating; "ceremonial" might mean a strong axis; "overgrown" might mean controlled visual enclosure with required access retained. These are options, not universal furniture-count or empty-area targets. Record priorities and acceptable tradeoffs when goals conflict. Ask only when the answer materially changes the design; otherwise record a revisable assumption.
 
 **Example:** "Support quick ordering, two-person conversation, and extended reading; service routes must not cross quiet seating; avoid orienting all seats in one direction." This guides tradeoffs better than "a white-and-wood cafe."
 
-## 2. Understand the empty shell and evidence before selecting furniture
+## 2. Understand the site/shell and evidence before selecting furniture
 
-First obtain shell dimensions, wall thicknesses, floor heights, columns/beams, doors/windows/sills, floor openings, stairs, and arrival areas on each floor. Distinguish immutable conditions, replaceable styles, parts that furniture can cover, and unverified conditions. Real architecture courses also examine plumbing, wet areas, and electricity; that does not justify inventing nonexistent plumbing restrictions for FFXIV.[5]
+First obtain the dimensions and fixed conditions of the actual design area. For interiors, inspect wall thicknesses, floor heights, columns/beams, doors/windows/sills, floor openings, stairs, and arrival areas on floors in scope. For yards, inspect plot boundaries/terrain, the house footprint and vertical envelope, the actual gate, exterior fixtures, and required approaches. Distinguish immutable conditions, replaceable styles, parts that furniture can cover, and unverified conditions. Apply only the relevant survey checks below. Real architecture courses also examine plumbing, wet areas, and electricity; that does not justify inventing nonexistent plumbing restrictions for FFXIV.[5]
 
 - The stair entrance, stair body, final step, and arrival/turning area are separate objects. Re-read them after changing the interior style rather than relying on the previous design.
 - The stairs' XY projection is not automatically an exclusion zone. Check headroom, access, and in-game placeability before using the space beneath.
 - Different interior styles of the same house type can have entirely different stair landings and under-stair spaces. Some enclose the whole area beneath the stairs and upper landing with walls, leaving no usable space; others have open stairs. Re-read arrival points, usable floor, and enclosed regions from native meshes in **the same design session after selecting the style**. Do not copy coordinates from a survey session, old plan comments, or another style.
-- Read fixed doors/windows first. Do not move the house's original structure by importing Holodeck's assumption of freely generated shells/openings.[3]
+- Read native openings and exterior fixtures first. Do not assume they are freely movable: distinguish fixed transforms from supported style replacements. Do not import Holodeck's assumption of freely generated shells/openings.[3]
 - Confirm MCP house type, seed, revision, furniture policy, and renderer gaps. An image missing the entrance door or railings is not a valid design basis.
-- Check image completeness before judging: are the entrance door, stairs, and scenic textures actually rendered? Does a plan/top view mix in other floors or ceiling components, or mistake walled-off floor for empty space? Fix the renderer or change evidence before judging the layout. An apparent obstruction or open area can be an image error rather than a design error.
+- Check image completeness before judging: are the required entrance, stairs, fixtures, and scenic textures actually rendered? Does a plan/top view mix in other floors or ceiling components, or mistake walled-off floor for empty space? If a renderer repair is authorized, fix and verify that defect; otherwise use independent valid evidence or leave the affected judgment unresolved. Do not change the design to disguise a rendering failure. An apparent obstruction or open area can be an image error rather than a design error.
 - Closing off a floor is an option based on this brief, not a default inherited from another design. Every floor in use must remain reachable.
 
 **Keep:** shell-condition diagrams/notes, fixed and editable elements, required circulation, measurement sources, and uncertainties. Pixel placement without dimensions/coordinate evidence is not completed measurement.
@@ -86,7 +127,9 @@ If retaining a distinctive furniture piece, state whether it is foreground or ba
 
 ### 4.1 A relationship diagram is not a miniature floor plan
 
-Zone by public/private, active/quiet, and use/service characteristics. List pairs that must adjoin, should be near, should be separated, or have no required relationship. A bubble diagram represents relationships; fit it into the actual shell afterward.[6]
+Choose relationship axes relevant to the program: public/private, active/quiet, use/service, performer/audience, view/foreground, or planted/occupied areas. List pairs that must adjoin, should be near, should be separated, or have no required relationship. A bubble diagram represents relationships; fit it into the actual site/shell afterward.[6]
+
+For example, a venue with service and quiet reading could use:
 
 ```text
 Entrance → Orient/pause → Distribute
@@ -106,23 +149,23 @@ Make it Home separately represents accessible sides, fronts that must be visible
 | Connecting routes | Entrance-to-zone routes and access from a route to every actual use face. |
 | Sightlines/legibility | Where a display face, window view, or directional cue is seen from; which obstructions are intentional. |
 
-Operating areas may overlap at different times, but the use scenario must be stated. Simultaneous queuing, work, and passage cannot share space merely because static outlines do not intersect. Prefer routes around activity groups rather than through conversational centers, without treating every empty area as a corridor.[6]
+Operating areas may overlap at different times, but the use scenario must be stated. Simultaneous queuing, work, and passage cannot share space merely because static outlines do not intersect. Where uninterrupted conversation or work is a goal, prefer routes around its activity core. Promenades, processional routes, exhibits, and stages may deliberately put movement at the center; check their intended relationships rather than treating every empty area as a corridor.[6]
 
 Dimensions in real-world courses are references tied to human bodies and particular regulations, not hard FFXIV rules. State character scale, comfort goals, and test conditions. Check "can pass," "convenient to operate," and "feels open" separately rather than reducing all three to one corridor width.[6]
 
 ### 4.3 Separate arrival, staying, and working
 
-After entering or climbing stairs, provide room to stand, turn, and choose a direction before entering service or seating areas. Waiting guests, bar stools, and restocking routes must not occupy this buffer. Wall displays can provide orientation cues; bookcases and plants are not mandatory in every design.
+At arrivals that need orientation or distribution, provide room to stand, turn, and choose a direction before conflicting activity begins. Verify simultaneous waiting, seating, work, and passage rather than assuming they can share a buffer. An immediate reveal, screened transition, or direct arrival into an activity can also be intentional if the brief supports it and required access works. Wall displays are one possible cue, not a requirement for bookcases or plants.
 
-Do not place seating groups on the entrance axis: a sofa group centered on it reads as a wall of seat backs from the door. Keep a straight route toward a focal view, and face the group's **open side** toward that route. Order private functions by distance **from the actual arrival point**. The first view downstairs should be a focal scene or social area, not a bed. Place the bedroom deepest inside, close it with a real door, and orient the door away from the arrival sightline.
+Test the relationship between arrivals, seating, destinations, and focal views. If a group blocks a required route or presents an unwanted wall of seat backs, adjust its position, approach, orientation, height, or surrounding route. Axial seating, freestanding sofas, ceremonial symmetry, and winding paths can be valid; neither wall-backed seating nor a straight focal aisle is universal. For private functions, choose separation through distance, screening, level, orientation, or an enclosure according to the brief. A bedroom may need a working door and concealed arrival view, or may intentionally be an open studio or display; do not impose one domestic arrangement on every project.
 
-**Emptiness does not establish good circulation.** Negative space should serve orientation, waiting, distribution, access, or breathing room around a focal scene. If large areas have no activity, add complete, distinct functional groups or background layers first, rather than scattering props or automatically centering a table.
+**Emptiness does not establish good circulation, and it is not automatically a missing function.** Negative space may serve orientation, gathering, performance, views, composition, or deliberate restraint. If an essential activity or intended spatial layer is missing, address that role with a coherent arrangement rather than scattered fillers. If the empty area already serves the brief, retain it instead of adding another seating group or automatically centering a table.
 
 **Keep:** activity/adjacency diagrams, primary/secondary routes, arrival areas, principal operating faces, and expected sightlines. Furniture selection need not be complete yet.
 
 ## 5. Turn relationships into comparable spatial frameworks
 
-Fit activity areas into actual dimensions, columns/beams, and openings to form a scaled block plan, then test real furniture and activity areas. Compare two or three clearly different alternatives for major structural decisions instead of decorating the first arrangement that fits.[7]
+Fit required activity/viewing areas into actual site/shell dimensions, fixed structures, and openings to form a scaled block plan, then test real furniture and activity areas. For major organizational decisions, compare meaningfully different alternatives instead of decorating the first arrangement that fits; two or three may suffice, but their number is not a quota.[7]
 
 Alternatives must change organization: wall-side versus central service, or reading deeper on one floor versus distributed across floors. Color changes alone are not spatial alternatives. A local correction does not require three complete houses each time.
 
@@ -144,7 +187,7 @@ When alternatives conflict, revisit zoning, furniture dimensions, or essential c
 
 Identify the missing role first: low background, work surface, shared focus, support, or masking. Then retrieve candidates. Holodeck combines semantic descriptions, appearance, and dimensions for asset retrieval; its object hierarchy distinguishes floor, wall, tabletop, and ceiling objects.[3]
 
-Check Item ID, scope, patch, real dimensions, and pivot. Inspect thumbnails and both sides of the native mesh, transparent/open regions, dyeable areas, and support surfaces. If no candidate fits, choose another or revisit zoning; do not silently drop essential functions. Similar names/embeddings do not establish equivalent shape or use.
+Check Item ID, scope, regional/patch eligibility, acquisition or inventory policy, real dimensions, and pivot. Inspect thumbnails and both sides of the native mesh, transparent/open regions, dyeable areas, and support surfaces. If no candidate fits, choose another within authorization, revisit zoning, or expose a requirement conflict; do not silently buy a substitute, add a copy, or drop an essential function. Similar names/embeddings do not establish equivalent shape or use.
 
 ### 6.2 Make design intent inspectable and editable
 
@@ -169,35 +212,35 @@ Here, the model decides layout intent, facing, density, and legal combinations, 
 
 Real furniture cannot be stretched like arbitrary rectangles. Preserve unit scale and asset dimensions; replace unsuitable furniture or change zoning. Coarse rectangles are for early planning only. Recheck recesses, angled shapes, cross-floor volumes, and floating relationships with appropriate native geometry and height information.
 
-**Keep:** stable instance IDs, roles/groups/dependencies, source assets, positions/facing/heights, and reversible operations. Visually test one representative unit before extending it. Repetition should establish order without copying one seating arrangement throughout the house.
+**Keep:** stable instance IDs, roles/groups/dependencies, source assets, positions/facing/heights, and reversible operations. Visually test one representative unit before extending it. Repetition can establish formal order, planting rhythm, or repeated audience seating; vary or repeat groups according to the program, not an automatic ban on identical arrangements.
 
-## 7. Resolve plan, elevations, sections, and ceiling together
+## 7. Resolve plan, vertical relationships, boundaries, and light together
 
-Fitting the floor plan does not establish a comfortable interior. Elevations resolve openings, cabinetry, and background proportions; sections resolve headroom, levels, sightlines, and hidden volumes. Treat the ceiling as another interface designed with zoning, beams, and lighting.[8]
+Fitting footprints does not establish a successful three-dimensional space. Elevations resolve openings, cabinetry, facades, and background proportions; sections resolve headroom, levels, sightlines, and hidden volumes. For interiors, coordinate the ceiling with zoning, beams, and lighting.[8] For yards, coordinate the house envelope, perimeter, planting/canopy layers, open sky, and foregrounds; a custom ceiling or enclosed boundary is not a missing component outdoors. Check only the constructions the design actually uses.
 
 - **Plan:** relationships between activities and circulation, not just furniture boxes.
-- **Vertical:** is everything at floor level or sealed to the ceiling? Check seated and standing sightlines.
+- **Vertical:** do heights, overhead elements, and foreground/background layers support the intended scale and sightlines? A low, open composition can be deliberate; height variation is not mandatory decoration.
 - **Backgrounds/backs:** do cabinet backs, false walls, and scenic surfaces look constructed from other zones too?
 - **Junctions:** walls, beams, cabinets, frames, and openings need plausible beginnings/endings, compatible seams, material directions, and thicknesses.
 - **Hidden volumes:** embedded or cross-floor bodies must not intrude unintentionally elsewhere. Legal overlaps still require checking finished faces.
 
-### Build windows/skylights before adding scenic surfaces
+### Conditional technique: integrate scenic surfaces into constructed openings
 
-Establish wall/column junctions, continuous ceilings, framing, and recessed openings first. Install the scenic surface afterward and conceal thick edges/backing. A few plants/grilles belong in the foreground. Raising a Phasmascape or dyeing it a similar color can still leave a hanging box. Inspect from the entrance, seats, and upward views rather than hiding it with clipping.[10]
+When a scenic surface is meant to read as a window or skylight, establish the relevant wall/column junctions, ceiling, framing, and recessed opening first. Install the scenic surface afterward and conceal unwanted thick edges/backing. Foreground framing is optional and should serve the view, not require plants or grilles. Raising a Phasmascape or dyeing it a similar color can still leave a hanging box. Inspect from relevant use positions and upward views rather than hiding it with clipping.[10] A deliberate freestanding screen or visibly framed exhibit has a different intent; it need not masquerade as an architectural opening.
 
 Ceilings affect headroom, native pendant lights, hidden lighting, and cameras. Lowering them may define a zone or feel oppressive; it is not a default for every design. Test representative components, distinguish front/back materials and dye coverage, then extend the order.[8][10]
 
-A shared feature of reference designs is that scenic surfaces appear **behind real openings**, with wall thickness, side returns, sills/railings, and foregrounds. The scene body/frame is concealed behind construction. A scene pasted onto a wall or a pillar-supported box called a skylight reads as an attached panel. Practical sequence:
+For the recessed-window/skylight technique, the scenic surface appears **behind a constructed opening**, with the appropriate depth and finishing. Conceal its body/frame where that is needed for the illusion. A scene pasted onto a wall or a pillar-supported box may read as an attached panel instead. One construction sequence is:
 1. Define the visible opening. Build a false wall with a doorway, arch, or window grid in front of the original wall. Recess the scene behind it and conceal all thick edges/frame.
 2. Add a railing or sill within the opening, with side lights/plants to form foreground, middle ground, and distance.
-3. Align skylights with native beam grids. If the scenic panel fits a bay, embed it there and dye the frame to match the ceiling so protrusions read as returns. Do not add separate pillars outside the grid.
+3. For a skylight intended to belong to the native ceiling order, use its beam/bay structure to integrate the opening. If the scenic panel fits a bay, embed it there and test frame/material matching. An intentionally independent structure needs its own resolved junctions rather than arbitrary supporting pillars added to disguise an exposed box.
 4. Hide frame/body from entrance, close, and upward views. If it still reads as a flat panel, add depth through recession, sidewalls, or subdivisions rather than more decoration.
 
 **Keep:** coarse placement, major elevation/section relationships, representative normal-eye views, and unresolved junctions. Formal CAD is not required for every design, but three-dimensional thinking is.
 
-## 8. Complete activities before lighting and lived-in detail
+## 8. Complete required uses and experience before finishing detail
 
-Walk through each zone's use scenario against the brief: where people arrive, stand/sit, face, reach, and leave, and what happens when others pass simultaneously. Check essential, supporting, and atmospheric objects separately. More pieces do not establish completeness.
+Walk through each zone's use/viewing scenario against the brief: where people arrive, stand/sit, face, reach, and leave, and what happens when others pass simultaneously. A stage or display needs its intended views and occupied areas, not every domestic activity listed below. Check essential, supporting, and atmospheric objects separately. Plan lighting with the concept and construction; this stage verifies its actual sources and effects rather than postponing all lighting decisions until furnishing is complete. More pieces do not establish completeness.
 
 | Zone | Check more than presence |
 |---|---|
@@ -206,10 +249,12 @@ Walk through each zone's use scenario against the brief: where people arrive, st
 | Rest/conversation | Shared focus, conversational distance, seat orientation, and backing, rather than pushing all furniture to distant walls. |
 | Display | Unobstructed fronts/view cones, room to pause, and no blocked circulation. |
 | Storage/doors | Accessible faces, opening/retrieval areas, and operating positions, not just entries in a list. |
+| Yard/landscape | Required gate-to-destination access, usable outdoor groups, equipment/plant access where requested, canopy/view relationships, and exterior fixture continuity. |
+| Stage/display/installation | Intended camera/view cones, audience or performer positions where required, foreground/background depth, and declared nonfunctional or off-camera areas. |
 
-Distinguish general orientation lighting, task lighting, and accents; assign separate jobs to hidden sources and visible fixtures. A board's "soft light" must become supported fixtures, surfaces, and source positions. Approximate renderer highlights cannot verify actual game sunlight, shadows, or reflections.[8][10]
+Choose lighting roles from the brief: orientation, tasks, accents, uniform display light, darkness, silhouette, or theatrical contrast. Not every project needs every layer. Distinguish visible fixtures from actual sources and test the surfaces and positions that produce the intended effect. A dark scene still needs any required passage and interactions tested under its intended conditions. Approximate renderer highlights cannot verify actual game sunlight, shadows, or reflections.[8][10]
 
-Backgrounds stabilize the whole; the use layer supports activities; props describe life. Integrate plants into planting/display structures, support cups/books/lights, and preserve usable counter space. Missing functions need complete groups; missing backgrounds need continuous volumes, not scattered fillers.
+Backgrounds, use layers, and detail should support the chosen hierarchy. Where used, planting should have a spatial role, props should have intentional support, and working surfaces should retain the space required by the activity. Missing required functions need coherent arrangements; they are not solved by scattered fillers. Bare backgrounds, open sky, sparse planting, and prop-free surfaces may be complete choices, not omissions to fill.
 
 **Keep:** status/evidence for essential functions in each zone and the distinction between symbolic use and actual game interaction. A decorative coffee machine can express service without brewing in-game; sitting or clicking a door needs separate interaction tests.
 
@@ -233,7 +278,7 @@ Research geometry proxies also have purposes and limits. Architect-Ant Appendix 
 
 SceneCritic uses SceneOnto priors for dimensions, support, co-occurrence, and facing to check semantics, orientation, and overlap, reporting successes/violations for specific objects/relationships. Semantic checks include scale, co-occurrence, plausibility, proximity, and inventory completeness; these still do not cover full activity usability.[11]
 
-Borrow its traceable diagnostic format without total-score gates. For each issue, record stable IDs, roles/relationships, rule applicability, geometry/image evidence, known versus inferred status, and whether revision resolves, retains, or introduces it. Complete inventories still require checking usable seats, operating faces, and simultaneous activities. Unknown categories/facing must not pass by default.
+Borrow its traceable diagnostic format without total-score gates. For each issue, record stable IDs, roles/relationships, obligation and applicability, geometry/image evidence, known versus inferred status, and whether revision resolves, retains, or introduces it. Complete inventories still require checking required seats, operating faces, and simultaneous activities. Unknown categories/facing must not pass by default.
 
 - **Reproducibility is not correctness.** Dataset dimensions, co-occurrence, back-to-wall, and face-room-center priors are not requirements for FFXIV scenery. Wall placement and target seats follow this design's intent and the actual asset's forward direction. Common pairings do not justify adding or scaling furniture automatically.
 - **A check's name does not establish precision.** SceneCritic Appendix B's True Overlap uses 2D OBBs and SAT, not exact triangles or full 3D game collision. Its orientation aggregation uses any-pass: one applicable subcheck passing does not verify every specified relationship.[11] Retain individual evidence, vertical ranges, intentional compositions, and untested relationships rather than hiding them under one total.
@@ -244,34 +289,36 @@ Borrow its traceable diagnostic format without total-score gates. For each issue
 
 | View | What to inspect |
 |---|---|
-| Each floor's overview/diagnostic plan | Zones, density, primary/secondary routes, missing functions, unused areas. |
+| Each in-scope area's overview/diagnostic plan | Zones, density, primary/secondary routes, required functions or views, purposeful and unexplained empty areas. |
 | Entrance eye level and looking back at the entrance | First impression, turning, orientation, door use, pressure from tall objects. A camera on the threshold cannot see the door itself; pair it with a reverse view and a plan containing the door. |
 | Seated/operating/viewing positions | Tables/chairs, work surfaces, backing, sightlines, actual visible content. |
 | Final steps, arrival, and after turning | The transition from walking to staying/choosing a route, not just a screenshot of empty floor. |
 | Upward, elevations, zone boundaries | Thick skylight frames, beam/wall junctions, cabinet backs, cross-floor intrusions, finishing. |
+| Yard perimeter, gate approaches, and house-facing views | Actual entry alignment, fixture-set continuity, planting/canopy occlusion, and required outdoor use faces. |
+| Specified stage/display cameras and off-axis checks | Intended composition, viewing access, declared camera-dependent illusions, and any usable areas outside the hero shot. |
 
-Normal eye-level views retain the actual ceiling. Top-view clipping is for floor diagnostics only. After structural edits, check that cameras are not inside walls. Mirrored display does not change house coordinates; separate missing materials/permanent structures from design faults first.
+Choose applicable views from this table; a single-floor set has no stair-arrival test, while a yard overview cannot replace a required gate-level view. Normal eye-level interior views retain the actual ceiling. Top-view clipping is for diagnostics only and must be labeled. After structural edits, check that cameras are not inside walls. Mirrored display does not change house coordinates; separate missing materials/permanent structures from design faults first. A deliberately camera-dependent illusion can be reviewed from its specified position, but do not claim that one view verifies unrestricted use or every other angle.
 
-Furniture needs access on both sides where its use requires it. Partitions or neighboring pieces must not reduce bed/table/cabinet use faces to slits (9 cm beside a bed or 0.57 m in front of a dressing table are unusable). After an unreachable-object list exposes this, reorganize the whole group rather than nudging it a few centimeters.
+Provide access to the sides and faces required by the specified use, not automatically to every side of every object. If a narrow approach defeats that use, verify the asset, character/interaction, and viewing conditions, then reorganize the affected relationship rather than defending a tiny coordinate nudge. A decorative bed, accessible working cabinet, and staged tabletop have different requirements; neither illustrative clearance numbers nor bounding-box paths prove game usability.
 
 ### 9.3 Turn feedback into falsifiable revision hypotheses
 
 | Feedback | Diagnose first | Revision level |
 |---|---|---|
-| Too empty | Missing essential functions, background/vertical layers, group boundaries, or purposeful negative space? | Brief, zones, volumes/groups; not scattered props first. |
-| Too crowded | Activity conflicts, oversized objects, blocked sightlines, or oppressive tall boundaries? | Rearrange relationships, change scale/boundaries; not just delete items. |
+| Too empty | Is a required function, spatial layer, or focal relationship missing, or is the sparseness intentional? | Recheck the brief; add coherent groups only for missing roles, or retain purposeful emptiness. |
+| Too crowded | Activity conflicts, poorly fitting assets, blocked required views, or enclosure inconsistent with the intended density? | Reorganize, replace within policy, or deliberately remove lower-priority content; do not stretch native furniture or delete essential functions. |
 | Messy/monotonous | Too many focal pieces, fragmentation, conflicting materials/silhouettes, or rhythm-less repetition/heights? | Groups, backgrounds, distinct uses, material hierarchy. |
 | Fake | Unsupported objects, wrong facing, surface-only construction, thick exposed frames, or distorted materials/structures in rendering? | Geometry, use relationships, construction, or tool verification. |
-| Jarring/pasted on | Scenic/feature pieces not integrated into construction: no wall thickness/opening, exposed frames, isolated supporting pillars? | Build openings and finishing before scenic panels; remove unnecessary supports rather than adding ornaments. |
+| Jarring/pasted on | Does a feature intended as integrated construction expose unintended frames, seams, or supports, or is it meant to be a freestanding exhibit? | Resolve the intended boundary/depth/junctions; use recessed openings only when an architectural illusion is the goal. |
 | Passable but inconvenient | Detours, queues/chair pull-out intrusion, arrival directly into work faces? | Reorganize groups/routes instead of continuing to snake around furniture. |
 
 Make it Home's local translations/rotations and larger swaps inspire layered corrections: decide whether organization or fine adjustment is needed, rather than endlessly nudging coordinates.[2] Record the issue, causal hypothesis, expected improvement, actual evidence, and retain/revert decision. A successful operation is not a reason to defend a failed design.
 
 ### 9.4 Comparison and interpretation discipline
 
-For formal layout comparisons, hold the shell, cameras, and evaluation conditions fixed. If assets/materials/light positions also change, describe a comparison of complete proposals rather than attributing differences only to layout. Anonymous A/B and reversed ordering can reduce bias; allow no clear preference or insufficient evidence. This does not require automatic calls to additional paid models.[3][4]
+For formal layout comparisons, hold the site/shell, cameras, and evaluation conditions fixed. If assets/materials/light positions also change, describe a comparison of complete proposals rather than attributing differences only to layout. Anonymous A/B and reversed ordering can reduce bias; allow no clear preference or insufficient evidence. This does not require automatic calls to additional paid models.[3][4]
 
-Use "usable / problematic / unidentified / insufficient evidence" per zone. Distinguish unseen from absent. Describe visible evidence without guessing exact dimensions or hidden equipment from images. Architect-Ant Appendix H explicitly limits its visual evaluation to automated image preference, not human research or geometric-validity testing. Different shells and selected samples also affect comparisons.[4]
+Use "usable / problematic / unidentified / insufficient evidence" for applicable use checks, and "not applicable" with a reason for excluded checks. Track visual preference separately. Distinguish unseen from absent. Describe visible evidence without guessing exact dimensions or hidden equipment from images. Architect-Ant Appendix H explicitly limits its visual evaluation to automated image preference, not human research or geometric-validity testing. Different shells and selected samples also affect comparisons.[4]
 
 ### 9.5 Aesthetic comparison of actual outputs (limited AesthetiQ adaptation)
 
@@ -291,23 +338,23 @@ Completion does not mean using every slot or placing every candidate. Delivery s
 
 ### Design works
 
-- [ ] Every essential activity in the brief has a corresponding arrangement; functions were not deleted to reduce collisions or increase emptiness.
-- [ ] Arrival, orientation, use, and departure are legible; primary routes do not cut through activity cores.
+- [ ] Every required use and experience in the brief has a corresponding arrangement; no unrelated household/venue functions were added by default and no essential ones were silently deleted.
+- [ ] Required arrivals, routes, use/viewing positions, and departure work for their intended scenarios; any deliberately shared movement/activity areas are justified and tested.
 - [ ] The concept changes decisions; groups share a language while supporting distinct uses.
-- [ ] Plan, backgrounds, elevations/sections, ceiling, lighting, and details have hierarchy and plausible junctions.
+- [ ] Applicable plan, vertical, background, boundary, lighting, and detail relationships support the concept; constructed junctions are resolved without requiring ceilings, scenery, or greenery everywhere.
 - [ ] Negative space has a purpose and dense areas retain operating space; item counts/scores do not replace judgment.
 
 ### Implementation is trustworthy
 
-- [ ] Real MCP state and export match item by item. Check identity, scope, patch, unit scale, finite transforms, and budget.
+- [ ] Real MCP state and export match item by item. Check identity, scope, regional/patch eligibility, inventory policy, unit scale, finite transforms, and separate applicable budgets.
 - [ ] Recheck activity areas, support, and facing after binding actual assets, not just early rectangles.
 - [ ] Preserve snapshots/stable IDs. Use revision-guarded atomic batches each round. After timeouts, read back first rather than replaying committed additions.
-- [ ] List preview limitations, intentional overlaps/floating, and untested items explicitly. Do not alter unrelated zones/designs.
-- [ ] Test entrance/door selection, characters/cameras, stairs, sitting/use, floating persistence after re-entry, and lighting in the target app. Untested is not passed.
+- [ ] List preview limitations, intentional overlaps/floating, and untested items explicitly. Compare protected elements and out-of-scope payloads with the authorized baseline; do not alter unrelated zones/designs.
+- [ ] Test required entrance/door selection, characters/cameras, stairs where present, sitting/use or teleport interactions where required, floating persistence after re-entry, and relevant lighting in the target app. Distinguish not applicable from unverified; untested is not passed.
 
 ### Delivery supports continuation and presentation
 
-Retain a concise brief, proposal tradeoffs, editable object/group dependencies, dimension/facing evidence, representative plans and normal-eye images, necessary ceiling/section notes, and material references. Label each image's purpose, clipped content, and orientation. An approximate perspective is not a scaled construction drawing.[9]
+Retain a concise brief, proposal tradeoffs, editable object/group dependencies, dimension/facing evidence, representative plans and relevant eye-level/camera images, necessary vertical/construction notes, and material references. Label each image's purpose, clipped content, orientation, and provenance. Distinguish native previews, flat schematics, in-game screenshots, and AI-edited illustrations; a redrawn image is not evidence of exact placements. An approximate perspective is not a scaled construction drawing.[9] Keep one working note and the necessary revision evidence rather than generating a separate document or request/response file for every worksheet row or edit.
 
 List technical evidence separately: text/schema validity, native-mesh/static-material visibility, specified geometry tests, and app behavior tests. Updating this method does not make old layouts pass new checks automatically. Unretested historical results retain their original scope.
 
@@ -315,7 +362,7 @@ The following is an optional library of in-game construction techniques selected
 
 ## 11. HGXIV construction techniques and design adaptation
 
-This section organizes useful content from the full guide, not one project's history or a requirement to use every trick. Establish purpose/composition before choosing techniques, then assess construction, item slots, and app verifiability.
+This section organizes useful content from the full guide, not one project's history or a requirement to use every trick. Establish purpose/composition before choosing techniques, then assess construction, item slots, and app verifiability. Instructions for concealing frames, mannequin bodies, or source objects apply when creating that particular illusion; an intentionally exposed exhibit or stage structure has a different goal. Required viewing conditions come from the brief, while hidden bodies still need checks for unintended effects on other usable areas.
 
 ### 11.1 Operations, previews, storage, and material risks
 - Distinguish moving, rotating, returning to inventory, and storage. The guide notes additional contents or retrieval restrictions for paintings, aquariums, wallpaper, consumables, etc. Back up risky changes, confirm current rules, and do not assume removal is lossless.
@@ -342,13 +389,13 @@ This section organizes useful content from the full guide, not one project's his
 
 ### 11.5 Lighting: separate visible fixtures from actual sources
 - Set base brightness first, then task, accent, and hidden fill lighting. The guide notes that custom ceilings can block native pendant lights; fixture count alone is insufficient.
-- Hidden sources can sit above ceilings, in corners, or behind scenery; visible fixtures support use/composition. Light should guide entrances, routes, reading surfaces, and focal scenes rather than making the whole house uniformly bright.
+- Hidden sources can sit above ceilings, in corners, or behind scenery; visible fixtures support use/composition. Use light to support the brief's orientation, tasks, and focal emphasis where required. Uniform illumination, deep shadow, or silhouette may instead be intentional; layered brightness is not a universal style rule.
 - Light/dark surfaces, material reflectance, and source placement jointly affect atmosphere. White walls alone are not completion, and dimness does not require dark wood on every surface.
 - HGXIV suggests Metal Work Lantern for white ambient fill, Alchemical Lantern/Assorted Candles for warmth, and Queen's Rest for strong spotlighting. Treat these as candidates to test, not permanently optimal rules; recheck acquisition/version availability.
 - Custom pendants can combine candle holders/lanterns; Factory Wall Lamp can be partly embedded; Hingan Chochin Lantern can support slit-light forms. Establish fixture shape and hidden-source positions before testing illumination goals.
 
 ### 11.6 Dynamic light, shadows, water light, and platform limits
-- Build starry skies from dark backgrounds, moon surfaces/small lights, and varied flickering objects. Keep interior brightness and nearby windows' day/night settings consistent rather than mixing contradictory skies.
+- For a coherent starry-sky illusion, test dark backgrounds, moon surfaces/small lights, and varied flickering objects with the nearby windows' day/night settings. Contradictory skies or illumination may be deliberate in a surreal/theatrical brief; identify the intended effect instead of treating every mismatch as a defect.
 - Shadow-window scenes need occluders, backgrounds, and hidden sources. Water light depends on water sources, time, Glare, and platform/client settings. The guide describes PC/platform differences, not universal client guarantees.
 - This renderer still lacks real shadows, reflections, GI, and complete emissive/animated materials. Adding lights or water objects does not reproduce the guide's effects. Verify shape, static texture visibility, and native game lighting separately.
 
@@ -393,7 +440,7 @@ This section organizes useful content from the full guide, not one project's his
 
 ### 11.13 Mannequins, special displays, and personal detail
 - Mannequins are interactive objects with equipment, poses, race-dependent scale, names, and other state, not ordinary static statues. Check current count limits, support/floating, and whether tools preserve those fields.
-- For weapon, clothing, or prop displays, hide mannequin bodies, hair/ears/tails, and names, and build plausible mounts/recesses. Objects stuck to walls are not completed displays.
+- If weapon, clothing, or prop displays are meant to conceal their mannequin supports, hide unwanted bodies, hair/ears/tails, and names, and resolve mounts/recesses. A visibly posed mannequin or exposed display system may be intentional; check it against that goal rather than automatically hiding it.
 - Props can describe activities or personal habits. If the tool cannot reconstruct the required appearance, do not use invented empty models or composite images as evidence of completion.
 
 ### 11.14 Execution and acceptance: turn techniques into testable proposals
@@ -432,24 +479,37 @@ Distinguish source claims from this workflow's adaptations. Using design knowled
 
 ## Project-start and iteration-review template
 
-This is a task-note format, not an MCP API or a requirement for fixed room/furniture counts.
+This is a task-note format, not an MCP API or a requirement for fixed room/furniture counts. Keep only applicable fields and record why a significant check is not applicable. For a small authorized revision, reuse the existing brief and update the affected relationships, invariants, and evidence rather than filling out an entire new project dossier.
 
 ```markdown
-# Interior design working notes
+# Spatial design working notes
+
+## Scope and authority
+- Interior / yard / coordinated scopes; home / venue / display / set / other purpose:
+- New design / revision / constrained reuse / staged delivery / assessment only:
+- Authoritative baseline (app save / export / MCP snapshot), seed and revision:
+- Areas and fixture classes allowed to change; protected elements and payloads:
+- Read-only diagnosis / exported proposal / authorized live application; tool-repair authorization:
+- Applicable checks / not applicable with reason / relevant but unverified:
+- Requirement obligation (required / preferred / optional), applicability, and evidence status:
 
 ## Program
-- Users, activities, duration, simultaneous use:
+- Users/characters/cameras, activities or viewing experience, duration, simultaneous use:
 - Essential/supporting/atmospheric functions; exclusions:
 - Success criteria and required evidence:
 - Confirmed requirements / provisional assumptions / questions that matter:
+- Priorities and acceptable tradeoffs; criteria for retaining or rejecting a revision:
 
-## Shell and constraints
-- House type, interior style, seed, revision, floors in use:
-- Entrance, final stair step/arrival, columns/beams, openings, headroom:
-- This style's stair landing, enclosed/usable under-stair areas, walled-off floor (re-read after style selection):
-- Render completeness: doors, stairs, scenic textures, other floors/ceiling parts mixed into plans:
+## Site/shell and constraints
+- House/plot type, style, region/client/patch, floors/areas in scope:
+- Interior if relevant: openings, stair arrivals, columns/beams, headroom, cross-floor impacts:
+- This style's stair landing and enclosed/usable under-stair areas (re-read affected geometry after style selection):
+- Yard if relevant: plot/terrain, house envelope, gate/approaches, perimeter/fixture set, canopy heights, neighboring views:
+- Render completeness: required structures/materials, hidden or mixed floors, clipping and known gaps:
 - Fixed / replaceable / coverable / unverified:
-- Patch/scope/whole-house budget and tool limitations:
+- Separate applicable furnishing/interaction budgets, policy source, scope and tool limitations:
+- Acquisition/inventory rule: new types, extra copies, substitutions, or existing-instance subset only:
+- Procurement/currency, storage, and temporary construction requirements separate from final placement slots:
 
 ## Parti and expression
 - One-sentence organizing concept:
@@ -458,7 +518,7 @@ This is a task-note format, not an MCP API or a requirement for fixed room/furni
 
 ## Relationships and alternative frameworks
 - Activity zones; must adjoin / preferably near / separated:
-- Primary/secondary routes, arrival/staying, service routes:
+- Required routes, arrivals, operating/viewing positions; service/audience routes only where needed:
 - Major A/B alternatives (more if needed), differences, costs, selection reasons:
 
 ## Furniture and activity relationship worksheet
@@ -468,6 +528,7 @@ This is a task-note format, not an MCP API or a requirement for fixed room/furni
 - Support parent/surface/children; dependencies for group moves:
 - Legal overlap/embedding pairs, purpose, finished faces, cross-floor bodies:
 - World coordinates/heights, export scale, display mirroring:
+- Requirement or preference → chosen relationship/technique → applicability reason → evidence:
 
 ## This iteration's hypotheses and operations
 - View/use scenario exposing the issue:
@@ -478,23 +539,25 @@ This is a task-note format, not an MCP API or a requirement for fixed room/furni
 - Same-ID diagnostics: resolved / persistent / new; side effects on other relationships:
 
 ## Separate acceptance checks
-- Technical: identity, patch, budget, transforms, support/unintended collision:
-- Functions: each essential zone = usable / problematic / unidentified / insufficient evidence:
+- Technical: identity, regional/patch eligibility, inventory, separate budgets, transforms, support/unintended collision:
+- Required use: each applicable zone = usable / problematic / unidentified / insufficient evidence:
 - Activity: arrival, operation, simultaneous use, departure; not just centerlines:
-- Visual: concept, groups, backgrounds, ceiling/elevations/sections, hierarchy, junctions:
-- Geometry test conditions: width/height, obstacles/exclusions, native stairs, scope:
+- Visual: concept, groups, backgrounds, applicable boundaries/vertical layers, hierarchy, junctions:
+- Geometry test conditions: width/height, obstacles/exclusions, relevant native structures, scope:
 - Views: normal-eye / overview / clipped diagnostic purposes; uncertainties/render gaps:
 - If A/B: which shell/cameras/assets/lighting are fixed or different:
 - Aesthetic preference with reasons / no clear preference / cannot judge; no inference of 3D function:
+- Not applicable with reason versus relevant but untested; protected-state comparison:
 
 ## Delivery and continuation
 - Final state/export revisions and item-by-item read-back evidence:
 - Verified / unverified / requiring app interaction or re-entry:
+- Whole scope versus stage; finished and unfinished areas; declared camera-only or nonfunctional content:
 - Main tradeoffs, representative images, recoverable revisions, remaining issues:
-- Quota and per-design MCP shutdown evidence:
+- Actual model/resource use and per-design MCP shutdown evidence where applicable:
 ```
 
-**Core sequence: establish activities and spatial relationships first, then real furniture, the third dimension, and construction; use details to reinforce the whole last. Verify every layer with appropriate evidence.**
+**Core sequence: establish this brief's uses, experience, boundaries, and relationships; bind real assets and resolve the three-dimensional space; use detail to reinforce the intended whole. Verify applicable claims with appropriate evidence, without turning one project's solution into the next project's rule.**
 
 ## Sources
 

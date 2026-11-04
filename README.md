@@ -13,7 +13,7 @@ A Python/SQLite furniture catalog and tools for editing, previewing, and exporti
 | Interior/yard MCP | Complete local catalog, assets, layout seed, OpenGL | [MCP guide](docs/mcp.md) |
 | Layout rendering | Same as above; no LLM required | [Renderer](ffxiv_furniture/rendering/README.md) |
 | Image classification/vocabulary | Your own image manifest and model endpoint | [Classification](ffxiv_furniture/classification/README.md) |
-| Interior design method | No tools required; a reference for the model or user when planning a layout | [Design method](DESIGN_CONTEXT.md) |
+| Interior and yard design method | No tools required; a reference for the model or user when planning or revising a layout | [Design method](DESIGN_CONTEXT.md) |
 | Development and script selection | Distinguish supported entry points from historical scripts | [Code guide](WORKSPACE.md) |
 
 **A fresh clone can run empty-database CRUD, but cannot render immediately.** `init` does not create a complete furniture catalog, geometry, house materials, or support surfaces. Data is not available as a separate release download. Follow the [local bootstrap guide](docs/bootstrap.md) with your own assets and English game CSVs. Private classification history is not required; visual tags and vectors are not generated automatically.
