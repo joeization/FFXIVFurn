@@ -26,7 +26,7 @@
 - **Script inventory and risks:** see [scripts/README.md](scripts/README.md).
 - **Persistent MCP client:** `scripts/deco_mcp_client.py interactive`; `list` lists tools, and `call` makes a one-shot call. Uses the Python interpreter that launched the client; see the MCP guide for platform verification limits.
 - **Staged plans:** `scripts/deco_offline.py`; commits changes. Do not replay committed furniture-creation steps.
-- **Read-only diagnostics/audits:** `audit_mcp_interiors.py`, `audit_mcp_interior_geometry.py`, `verify_interior_switching.py`, `scan_missing_textures.py`. Check arguments and output locations first.
+- **Read-only diagnostics/audits:** `audit_mcp_interiors.py`, `audit_mcp_interior_geometry.py`, `verify_interior_switching.py`, `scan_missing_textures.py`, `layout_schematic.py` (flat finalized-layout plan; writes only a PNG into the layout's `renders/`). Check arguments and output locations first.
 - **Catalog maintenance/database writes:** `build_real_db.py`, `fill_*.py`, `import_material_tags.py`, `index_materials.py`. Most depend on local historical artifacts. The historical build_real_db script is not a fresh-clone entry point; new users should use `python -m ffxiv_furniture.bootstrap`. Back up data first.
 - **Models/potential charges:** `design_room.py`, `refine_design.py`, `iterate_render.py`, `review_*.py`, `run_opus_design.py`, and others. Check endpoints/models before running; do not invoke these during installation or setup tests.
 - **Historical/one-off experiments:** other build/test/probe and design-specific scripts remain for provenance, not as recommended entry points. Further reorganization and portability work remain pending.

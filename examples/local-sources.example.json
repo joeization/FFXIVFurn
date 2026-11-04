@@ -1,9 +1,0 @@
-{
-  "furniture_roots": ["../data/gameassets-legacy/MakePlace/Content"],
-  "interiors": "../data/house-interiors-legacy/MakePlace/Content",
-  "houses": "../data/house-legacy/MakePlace/Content",
-  "materials": "../data/house-materials-legacy/MakePlace/Content",
-  "items_csv": "../data/external/Item.csv",
-  "ui_categories_csv": "../data/external/ItemUICategory.csv",
-  "stains_csv": "../data/external/Stain.csv"
-}

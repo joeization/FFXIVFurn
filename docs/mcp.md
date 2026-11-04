@@ -65,6 +65,7 @@ For yards, use `DECO_SCOPE=exterior` and another session name. S/M/L budgets are
 3. `render` and inspect the actual image. Use `analyze_layout` for circulation/support diagnostics, then edit and inspect again. FFXIV permits intentional overlaps, embedding, and floating; most spatial checks are advisory, not aesthetic scores.
 4. Use `undo`/`redo`/`restore` to recover earlier states. `expected_revision` guards against stale submissions.
 5. `export_json` writes UTF-16LE BOM and preserves unknown seed fields. Yard edits preserve the interior payload. It does not overwrite the app Save; validate separately after app import.
+6. When a layout is finalized (exported, committed, or delivered), also generate the flat schematic: `python scripts/layout_schematic.py <layout.json>`. It reads the catalog DB read-only and writes one PNG beside the layout; furniture may legally poke through walls, and the drawing never clips it.
 
 ## Coordinates and outputs
 

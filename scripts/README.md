@@ -12,6 +12,7 @@ Prefer package entry points. Do not infer that a historical script is an install
 | Interactive decorating | `deco_mcp_client.py interactive` | MCP edits sessions, renders, exports |
 | Staged decorating | `deco_offline.py` | Commits plans; do not replay committed creation operations |
 | Native rendering | `python -m ffxiv_furniture.rendering` | PNG output; diagnostics require opt-in |
+| Finalized-layout schematic | `python scripts/layout_schematic.py <layout.json>` | Flat two-floor plan from the layout JSON and catalog bounds; reads the DB, writes one PNG to the layout's `renders/` |
 | Distribution checks | `check_distribution.py` | Reads Git index; `--directory` checks a prepared distribution directory |
 | Local model image inspection | `describe_render.py <PNG> <question>` | Sends images to an explicitly configured model; may incur charges |
 | Maintenance/experiments | `build_*`, `fill_*`, `review_*`, etc. | Read the code first; may depend on private history, write databases, or call models |
