@@ -27,6 +27,12 @@ Users, activities, and success criteria (program)
 
 This is an iterative convergence process, not a one-way pipeline. New furniture dimensions may require rezoning; sightline problems may require a ceiling change; user feedback may overturn the concept. Adjusting a cup does not require rebuilding the house, but structural or functional failures cannot be solved by adding cups.[5][7]
 
+### Keep a flat plan in the loop
+
+Generate a measured flat plan of the empty or current shell before placing furniture, then mark activity zones and entrance-to-destination routes on a separate planning overlay. After each spatial edit batch, regenerate the plan and compare it with the previous revision before accepting the layout. Use plans to check junctions, operating fronts, seating approaches, doorway buffers and path-side lighting; do not wait until final export to discover these relationships. Planning and final images omit furniture inventories unless explicitly requested.
+
+Pair every plan review with a full overview and occupied eye-level views: crowns/branches, fixture heights, occlusion and material behavior cannot be verified from footprints alone. A yard overview must include the actual gate and perimeter, supplemented by inward and reverse entrance views. Gate, straight and corner fence components form one matched fixture set; do not redesign the gate independently. Keep low lamps outside passage envelopes, store firewood beside rather than across a well's operating approach, and move entrance seating into a usable off-route pocket. These are review scenarios, not blanket collision prohibitions; intentional embedding and planting overlap remain legal.
+
 ## 1. Turn a theme into an activity brief
 
 "Cafe," "conservatory," and "modern home" describe types only. Identify who does what, when, with whom, and which activities conflict before deciding the space's shape. Programming establishes requirements first; it should not begin by choosing partitions and furniture forms.[5]

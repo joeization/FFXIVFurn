@@ -41,6 +41,14 @@ Once the interactive client starts, send one JSON object per line, retaining the
 
 Close gracefully with `quit`, `exit`, `{"close":true}`, or EOF. Do not restart after placing each item. `list` lists tools; `call <tool> '<JSON>'` makes a one-shot call. The helper uses its launching `sys.executable`, not a hardcoded Windows venv in the repo; the ready message reports the interpreter. Complete execution on non-Windows systems remains unverified.
 
+### Keep intermediate files bounded
+
+Send request JSON lines directly to the persistent client's stdin and read correlated response lines from stdout. Do not create one `request-N.json` and `response-N.json` per call or a new file-queue bridge for each design round; the existing interactive client already provides the transport. Keep responses, inventories, schemas and transient analysis in the controller's memory. If a durable call trace is needed, append to one JSONL journal per run, retaining exact failed responses too; do not save base64 image payloads in that journal.
+
+Keep the saved session/history, deliberate recovery snapshots, current exported layout/instance map, one concise verification summary, and the plan/render images actually used for spatial review. Generate plans at planning/spatial-change checkpoints, but do not write a redundant export, inspection dump or schema copy for every status/search/render call. Keep renderer diagnostics opt-in; normal views need PNGs, not accompanying manifests/layout snapshots/review requests. The two views of one revision are distinct evidence; duplicated images or repeated metadata are not.
+
+This is a policy for new work, not permission to delete historical files. Consolidating old journals requires a verified lossless archive; preserve final layouts, session recovery data and source assets.
+
 For other MCP applications, set `command` to the absolute virtual-environment Python path, `args` to `-m ffxiv_furniture.deco.server`, `cwd` to the project root, and pass the environment variables above. No particular agent's global registration is required. stdout is reserved for the protocol; logs go to stderr.
 
 ## Settings
@@ -65,7 +73,8 @@ For yards, use `DECO_SCOPE=exterior` and another session name. S/M/L budgets are
 3. `render` and inspect the actual image. Use `analyze_layout` for circulation/support diagnostics, then edit and inspect again. FFXIV permits intentional overlaps, embedding, and floating; most spatial checks are advisory, not aesthetic scores.
 4. Use `undo`/`redo`/`restore` to recover earlier states. `expected_revision` guards against stale submissions.
 5. `export_json` writes UTF-16LE BOM and preserves unknown seed fields. Yard edits preserve the interior payload. It does not overwrite the app Save; validate separately after app import.
-6. When a layout is finalized (exported, committed, or delivered), also generate the flat schematic: `python scripts/layout_schematic.py <layout.json>`. It reads the catalog DB read-only and writes one PNG beside the layout; furniture may legally poke through walls, and the drawing never clips it.
+6. Use flat plans throughout the design process, not only at handoff: inspect the current or empty shell, plan zones and gate/door/stair-to-destination routes before placing furniture, regenerate after each spatial batch, and compare plans before accepting edits. Pair each plan review with a full overview and occupied eye-level render; tree crowns, light heights and occlusion need three-dimensional checks. Yard overviews must frame the actual gate/perimeter, with inward and reverse arrival views. Fence gates, straight and corner sections are one matched fixture set, never independently replaced.
+7. Generate the final plan alongside the export. For supported interior plans: `python scripts/layout_schematic.py <layout.json>`. It reads the catalog DB read-only and writes a PNG to the layout's `renders/` directory. Planning and final images omit furniture inventories by default; `--index` explicitly opts into the interior script's inventory. Use the matching yard-profile plan for exteriors; the interior script is not a yard renderer. Furniture may legally poke through walls, and plans must not clip it or change layout coordinates.
 
 ## Coordinates and outputs
 

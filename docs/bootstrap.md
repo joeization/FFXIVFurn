@@ -37,6 +37,8 @@ PAKS="<your-app-Paks-directory>"
 
 Preserve `.uasset`, `.uexp`, `.ubulk`, and their original relative paths. `_T` thumbnails alone cannot provide geometry or object dimensions. Existing conversion outputs elsewhere need not be copied; point the settings at their location.
 
+Do not extract only individual roof/wall folders: meshes can reference shared `HouseAssets/Materials/` packages, and those materials can reference textures under another house-size folder. A mesh and thumbnail may load while every material slot renders as a white fallback. Keep the full `/HouseAssets/` conversion above, or resolve the exact native dependency chain. Shared `/Game/Materials/` master packages are outside `/GameAssets/` and `/YardAssets/`; retain them too when preparing material/shader diagnostics. Missing files, unsupported material layouts, and unsupported shader graphs are separate findings. Re-render the same selected asset after restoring dependencies; changing the fixture is not a renderer repair.
+
 ## 2. Create source settings
 
 Copy the [path template](../examples/local-sources.example.json) to `data/local-sources.json` and enter your actual locations. The template contains paths only, not game data.

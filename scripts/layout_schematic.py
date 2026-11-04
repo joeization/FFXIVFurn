@@ -1,4 +1,4 @@
-"""Two-floor flat schematic from a finalized ReMakePlace layout JSON.
+"""Two-floor flat planning/review schematic from a ReMakePlace layout JSON.
 
 Pure schematic: colored bounding footprints drawn from the layout's own
 transforms plus catalog-measured bounds. No game textures, meshes, or 3D
@@ -7,12 +7,12 @@ rendering; nothing except the output PNG is written.
 View is mirrored horizontally by default (+X to the left, +Y up) to match the
 app as observed by the user, same convention as MCP renders. Doors and windows
 come from the selected interior profile. Labels use greedy collision-avoidance
-placement with leader lines and are never required for identification (the
-numbered index covers every item).
+placement with leader lines. Use plans before placement and after spatial
+batches; a full furniture inventory is omitted unless --index is requested.
 
 Usage (project root):
     .venv/Scripts/python.exe scripts/layout_schematic.py <layout.json>
-        [--district Mist] [--out DIR] [--no-labels] [--no-mirror]
+        [--district Mist] [--out DIR] [--no-labels] [--no-mirror] [--index]
 """
 
 from __future__ import annotations
@@ -215,6 +215,7 @@ def main() -> None:
     ap.add_argument("--db", type=Path, default=ROOT / "data/furniture.sqlite3")
     ap.add_argument("--out", type=Path, default=None, help="Defaults to the layout's renders/ directory")
     ap.add_argument("--no-labels", action="store_true")
+    ap.add_argument("--index", action="store_true", help="Include an optional furniture inventory (omitted from planning views by default)")
     ap.add_argument("--no-mirror", action="store_true", help="Raw world axes (+X right) instead of the app-mirrored view")
     args = ap.parse_args()
 
@@ -241,7 +242,7 @@ def main() -> None:
     counts = collections.Counter(r["level"] for r in items)
     floors = [level for level in ("ground", "basement") if level in room.polys and not room.polys[level].is_empty]
 
-    W, H = 3200, 3080
+    W, H = 3200, 3080 if args.index else 1800
     panel_w, panel_h = 1500, 1340
     img = Image.new("RGB", (W, H), PAPER)
     d = ImageDraw.Draw(img)
@@ -486,22 +487,23 @@ def main() -> None:
     d.rectangle((x, 1601, x + 25, 1620), fill="#BBD4E4", outline="#7E9DB4", width=2)
     d.text((x + 36, 1594), "Window", font=f23, fill=OUTLINE)
 
-    d.text((85, 1665), "FURNITURE INDEX", font=f32, fill=INK)
-    d.text(
-        (85, 1715),
-        "Numbers use JSON order. G = ground floor, B = basement. Small props and elevated items are drawn but may skip the "
-        "numbered tag when no collision-free spot exists; every item remains in this index.",
-        font=f20,
-        fill=MUTED,
-    )
-    for i, r in enumerate(items):
-        col, row = divmod(i, 28)
-        x = 85 + col * 785
-        y = 1775 + row * 35
-        label = f'{r["id"]:03d}  {"G" if r["level"] == "ground" else "B"}  {r["name"]}'
-        while d.textlength(label, font=f20) > 745:
-            label = label[:-2] + "…"
-        d.text((x, y), label, font=f20, fill=OUTLINE)
+    if args.index:
+        d.text((85, 1665), "FURNITURE INDEX", font=f32, fill=INK)
+        d.text(
+            (85, 1715),
+            "Numbers use JSON order. G = ground floor, B = basement. Small props and elevated items are drawn but may skip the "
+            "numbered tag when no collision-free spot exists; every item remains in this index.",
+            font=f20,
+            fill=MUTED,
+        )
+        for i, r in enumerate(items):
+            col, row = divmod(i, 28)
+            x = 85 + col * 785
+            y = 1775 + row * 35
+            label = f'{r["id"]:03d}  {"G" if r["level"] == "ground" else "B"}  {r["name"]}'
+            while d.textlength(label, font=f20) > 745:
+                label = label[:-2] + "…"
+            d.text((x, y), label, font=f20, fill=OUTLINE)
     d.text(
         (85, H - 95),
         "SCHEMATIC ONLY - Bounding footprints can overlap intentionally. Not collision, clearance, or in-game placement validation.",
@@ -533,6 +535,7 @@ def main() -> None:
                 "floors": dict(counts),
                 "mirrored_view": mirror,
                 "labels": not args.no_labels,
+                "furniture_index": args.index,
                 "source_hash": source_hash,
                 "source_db_state_unchanged": before is not None,
                 "uses_game_textures": False,

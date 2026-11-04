@@ -88,6 +88,8 @@ Once data is ready, configure a session and seed using the [MCP guide](docs/mcp.
 
 ## Example
 
+### Small-house interior
+
 One Small-house interior produced from a single design brief, then checked in the game. The brief ([examples/prompt.md](examples/prompt.md)) asks for an original "Sunset Woodland Retreat": a warm, rustic countryside cottage with a reading/lounge area, a study corner, and a window-alcove focal point. It sets the style, palette, zoning, lighting, originality and evaluation requirements, and requires furniture to come only from the catalog.
 
 The example was produced by Claude Opus 5.5 driving the MCP tools (`inspect`, edit, `render`, and review) over several tweak rounds with human feedback, following the workflow in [DESIGN_CONTEXT.md](DESIGN_CONTEXT.md) (activity brief, shell survey, zoning, furniture binding, lighting, then render-and-revise). DESIGN_CONTEXT.md is a methodological reference, not a description of what the tools implement.
@@ -103,6 +105,24 @@ The example was produced by Claude Opus 5.5 driving the MCP tools (`inspect`, ed
 | ![In-game view 1](examples/ingame_1.png) | ![In-game view 2](examples/ingame_2.png) | ![In-game view 3](examples/ingame_3.png) |
 
 The in-game screenshots are the maintainer's own captures. They show game assets, so confirm you are comfortable publishing them (see the [distribution policy](docs/distribution.md)). Do not add databases or extracted meshes/textures.
+
+### Small-house yard
+
+A 20-furnishing yard extension of the same "Sunset Woodland Retreat", retaining the private Aetheryte, tea seating and clear entrance routes. The [yard adaptation brief](examples/yard-prompt.md) summarizes the requirements and later feedback; the final simplification reuses only existing furnishings, with no new types or extra copies.
+
+The yard was developed with GPT-6.1 (Sol) driving the MCP tools over several refinement rounds with human feedback, following [DESIGN_CONTEXT.md](DESIGN_CONTEXT.md). Flat plans were used during planning and revision, not only at delivery; the document remains a methodological reference, not a description of implemented tooling.
+
+**Flat yard schematic** (measured footprints of the 20-item layout; no furniture inventory, textures or 3D rendering):
+
+![Flat yard schematic](examples/yard_layout.png)
+
+**GPT-edited yard illustration** (based on the maintainer's FFXIV screenshot):
+
+![Yard illustration: GPT background removal also redrew the image](examples/yard_gpt_edited.png)
+
+**GPT was used to remove the background, but it also redrew the image.** Details may differ from the original in-game screenshot. This is an edited illustration, not an unaltered game screenshot, a ReMakePlace screenshot or native-renderer output; it is not evidence of exact placement or furnishing counts.
+
+The illustration contains game-derived content and is not covered by the code/documentation MIT grant; see the [distribution policy](docs/distribution.md).
 
 ## Development and pre-distribution checks
 

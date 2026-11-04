@@ -37,6 +37,10 @@ S/M/L yards use native exterior-map component positions, rotations, and separate
 
 Unknown IDs/component schemas, missing native models, or unsupported structures are not replaced with fake boxes. Material parsing failures may use an explicit fallback; inspect metadata warnings. A catalog renderable flag does not establish complete shader reconstruction.
 
+For white-model defects, inspect `native_material_diagnostics` by `furniture`, `structure`, and (indoors) `fixtures`, including each entry's `notes` and per-slot `warning`. Legacy top-level slot totals cover furniture only. A failed section/material-table parse may report zero counted slots, so a high textured-slot ratio alone is not a clean bill of health. Room wallpaper/floor texture overrides can supersede native placeholders; raw decode coverage is not effective shader coverage.
+
+Resolve missing native package references before changing parsers or selecting a different fixture. House meshes may depend on shared `HouseAssets/Materials/` and textures in other size folders; see [source preparation](../../docs/bootstrap.md). A file that exists but uses a master water/glass shader is a different issue from a missing Base texture: a static albedo or thumbnail is not a substitute for transparency, refraction, flow, or reflections. Regression `tests/test_highland_roof.py` checks all five real Highland Wood roof slots when that local mesh is available; it skips when proprietary source data is absent.
+
 ## Bounded patches and visual review (advanced)
 
 Generate diagnostics with `--artifacts` first. Older file-based review tools may require unprefixed `manifest.json`/`layout.json` in a separate diagnostic directory. Do not run manifest-dependent legacy tools on ordinary MCP PNGs.

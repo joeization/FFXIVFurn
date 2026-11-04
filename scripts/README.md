@@ -12,14 +12,14 @@ Prefer package entry points. Do not infer that a historical script is an install
 | Interactive decorating | `deco_mcp_client.py interactive` | MCP edits sessions, renders, exports |
 | Staged decorating | `deco_offline.py` | Commits plans; do not replay committed creation operations |
 | Native rendering | `python -m ffxiv_furniture.rendering` | PNG output; diagnostics require opt-in |
-| Finalized-layout schematic | `python scripts/layout_schematic.py <layout.json>` | Flat two-floor plan from the layout JSON and catalog bounds; reads the DB, writes one PNG to the layout's `renders/` |
+| Interior planning/final schematic | `python scripts/layout_schematic.py <layout.json>` | Use before placing and after spatial batches, not just at handoff; reads catalog bounds, writes one PNG to `renders/`; no furniture inventory unless `--index` is requested; not a yard renderer |
 | Distribution checks | `check_distribution.py` | Reads Git index; `--directory` checks a prepared distribution directory |
 | Local model image inspection | `describe_render.py <PNG> <question>` | Sends images to an explicitly configured model; may incur charges |
 | Maintenance/experiments | `build_*`, `fill_*`, `review_*`, etc. | Read the code first; may depend on private history, write databases, or call models |
 
 Python MCP/offline/audit launchers use the current `sys.executable`, not a hardcoded external venv. Bash wrappers accept an executable through `PYTHON`, otherwise selecting `.venv/bin/python`/`.venv/Scripts/python.exe`. They still use GNU timeout; prefer Python entry points for portability. Filenames remain unchanged to preserve existing calls and historical references.
 
-One-shot `call` exits 1 if any tool reports an error and 0 on success. Multiple calls are not atomic; use batch for atomic edits. Interactive mode reports `isError` per request while retaining the connection, leaving subsequent decisions to the caller.
+One-shot `call` exits 1 if any tool reports an error and 0 on success. Multiple calls are not atomic; use batch for atomic edits. Interactive mode reports `isError` per request while retaining the connection, leaving subsequent decisions to the caller. Drive it through stdin/stdout rather than per-call request/response files. Keep transient responses in memory; an optional durable trace is one JSONL journal per run, not one file per request, schema or inspection. Preserve deliberate snapshots, final exports and useful planning/render images; do not automatically delete historical evidence.
 
 ## Model settings are explicit
 
