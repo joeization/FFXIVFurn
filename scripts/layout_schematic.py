@@ -184,6 +184,10 @@ def load_items(layout: dict, db_path: Path) -> list[dict]:
             corners = (corners * np.array(item["transform"]["scale"])) @ rotation.T + loc
             footprint = MultiPoint(corners[:, :2]).convex_hull
             level = "basement" if loc[2] < -3 else "ground"
+            # Medium/Large upper floors are at +7 m. Use the transformed bottom,
+            # not a high pivot, so tall ground-floor panels remain downstairs.
+            if layout.get("houseSize") in ("Medium", "Large") and float(corners[:, 2].min()) >= 6.4:
+                level = "upper"
             rows.append(
                 dict(
                     id=index,
@@ -193,7 +197,7 @@ def load_items(layout: dict, db_path: Path) -> list[dict]:
                     poly=footprint,
                     loc=loc,
                     category=categorize(item["name"]),
-                    height=float(corners[:, 2].min()) - (-7.0 if level == "basement" else 0.0),
+                    height=float(corners[:, 2].min()) - {"basement": -7.0, "ground": 0.0, "upper": 7.0}[level],
                 )
             )
         return rows
@@ -240,7 +244,9 @@ def main() -> None:
     room.polys = {lvl: sanitize_polygon(poly) for lvl, poly in room.polys.items()}
     items = load_items(layout, args.db)
     counts = collections.Counter(r["level"] for r in items)
-    floors = [level for level in ("ground", "basement") if level in room.polys and not room.polys[level].is_empty]
+    floors = [level for level in room.levels if level in room.polys and not room.polys[level].is_empty]
+    if set(counts) - set(floors):
+        raise SystemExit(f"Furniture on unsupported schematic floors: {sorted(set(counts)-set(floors))}")
 
     W, H = 3200, 3080 if args.index else 1800
     panel_w, panel_h = 1500, 1340
@@ -252,7 +258,7 @@ def main() -> None:
     revision = "r?" if "-" not in source.stem else source.stem.rsplit("-", 1)[-1]
     d.text(
         (82, 112),
-        f"{revision}  /  TWO-FLOOR SCHEMATIC  /  {layout['houseSize']} - {district or 'Shirogane'} interior",
+        f"{revision}  /  {len(floors)}-FLOOR SCHEMATIC  /  {layout['houseSize']} - {district or 'Shirogane'} interior",
         font=f26,
         fill=MUTED,
     )
@@ -299,7 +305,7 @@ def main() -> None:
         )
         d.text(
             (panel_x + 40, panel_y + 25),
-            ("GROUND FLOOR" if level == "ground" else "BASEMENT") + f"  /  {counts[level]} items",
+            {"ground": "GROUND FLOOR", "upper": "UPPER FLOOR", "basement": "BASEMENT"}[level] + f"  /  {counts[level]} items",
             font=f32,
             fill=INK,
         )
@@ -491,7 +497,7 @@ def main() -> None:
         d.text((85, 1665), "FURNITURE INDEX", font=f32, fill=INK)
         d.text(
             (85, 1715),
-            "Numbers use JSON order. G = ground floor, B = basement. Small props and elevated items are drawn but may skip the "
+            "Numbers use JSON order. G = ground, U = upper, B = basement. Small props and elevated items are drawn but may skip the "
             "numbered tag when no collision-free spot exists; every item remains in this index.",
             font=f20,
             fill=MUTED,
@@ -500,7 +506,7 @@ def main() -> None:
             col, row = divmod(i, 28)
             x = 85 + col * 785
             y = 1775 + row * 35
-            label = f'{r["id"]:03d}  {"G" if r["level"] == "ground" else "B"}  {r["name"]}'
+            label = f'{r["id"]:03d}  {dict(ground="G",upper="U",basement="B")[r["level"]]}  {r["name"]}'
             while d.textlength(label, font=f20) > 745:
                 label = label[:-2] + "…"
             d.text((x, y), label, font=f20, fill=OUTLINE)

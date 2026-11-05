@@ -91,6 +91,33 @@ def apply_default_dye(rgba, dye_rgb):
     return res
 
 
+def door_hinge_sockets(path):
+    """Decode the native static-mesh DoorHinge transforms; never guess a leaf pivot.
+
+    The inspected UE5.3 socket schema is FName, FVector3d (cm), FRotator3d
+    (pitch/yaw/roll), followed by the zero object-guid marker. Unknown layouts
+    fail explicitly rather than attaching a door at an invented origin.
+    """
+    path=Path(path).with_suffix('.uasset')
+    table=native.tables.map_tables(path);data=path.with_suffix('.uexp').read_bytes()
+    sockets=[]
+    for export in table['exports']:
+        if not export['class'].endswith('.StaticMeshSocket'):continue
+        start=export['serial_offset_in_uexp'];end=start+export['serial_size']
+        r=native.Reader(data[start:end],native.names(path))
+        fields,zero=r.header()
+        if fields!=[0,1,2] or zero:raise ValueError('Unsupported native door socket schema')
+        name=r.fname();location=np.asarray(r.read('<3d'),float)/100
+        pitch,yaw,roll=r.read('<3d')
+        if r.data[r.pos:]!=b'\0'*4 or not np.isfinite([*location,pitch,yaw,roll]).all():
+            raise ValueError('Invalid native door socket payload')
+        if not name.startswith('DoorHinge'):continue
+        if abs(pitch)>1e-8 or abs(roll)>1e-8:raise ValueError('Non-yaw native door hinge is not supported')
+        if any(s['socket']==name for s in sockets):raise ValueError('Duplicate native door hinge')
+        sockets.append(dict(socket=name,translation_m=location.tolist(),yaw_degrees=float(yaw)))
+    return sockets
+
+
 class Assets:
     def __init__(self,records,cache_dir,dyes=None,fallback_colours=None,mi_tint=False,resource_cache=None):
         self.mi_tint=mi_tint   # use each material instance's own Tint/FixedTint (the item's real default look) instead of the DB default dye
@@ -183,12 +210,44 @@ class Assets:
                 fb=self.fallback_colours.get(item_id)
                 if fb: entry['flat_color']=((int(fb[1:3],16)/255, int(fb[3:5],16)/255, int(fb[5:7],16)/255))
             decoded.append(entry)
-        result={'vertices':np.asarray(vertices),'triangles':np.asarray(triangles),'uv':uv,'groups':groups,'materials':decoded}
+        components=[]
+        if path.stem.endswith('PartitionDoor'):
+            # Interactive partition frames and movable leaves are separate native
+            # meshes. Attach one leaf per decoded hinge (Log has two), preserving
+            # the socket pose; this does not simulate the game's open/close state.
+            from ..geometry import read_static_mesh_bounds
+            leaf_path=path.with_name(path.stem+'_Door.uexp')
+            dependencies.update(leaf_path.with_suffix(s) for s in ('.uasset','.uexp','.ubulk'))
+            sockets=door_hinge_sockets(path)
+            if not sockets:raise ValueError(f'No native DoorHinge socket for {path.stem}')
+            leaf_record=read_static_mesh_bounds(leaf_path);leaf_record['item_id']=item_id
+            leaf_assets=Assets([leaf_record],self.cache,dyes=self.dyes,fallback_colours=self.fallback_colours,
+                               mi_tint=self.mi_tint,resource_cache=self.resource_cache)
+            leaf=leaf_assets.load(item_id,color)
+            dependencies.update(leaf_assets.dependencies)
+            notes.extend('Door leaf: '+note for note in leaf_assets.coverage[0]['notes'])
+            for socket in sockets:
+                a=np.radians(socket['yaw_degrees']);c,s=np.cos(a),np.sin(a)
+                rotation=np.array([[c,-s,0],[s,c,0],[0,0,1]])
+                attached=leaf['vertices']@rotation.T+socket['translation_m']
+                vertex_offset=len(vertices);triangle_offset=len(triangles);material_offset=len(decoded)
+                vertices=np.concatenate((vertices,attached));triangles=np.concatenate((triangles,leaf['triangles']+vertex_offset))
+                uv=np.concatenate((uv,leaf['uv']))
+                groups.extend(dict(material_index=g['material_index']+material_offset if g['material_index']>=0 else -1,
+                                   first_triangle=g['first_triangle']+triangle_offset,triangle_count=g['triangle_count']) for g in leaf['groups'])
+                decoded.extend(leaf['materials'])
+                components.append(dict(socket,source=leaf_record['source'],source_sha256=leaf_record['source_sha256'],
+                                       pose='native-socket',app_verified=False,vertex_start=vertex_offset,
+                                       vertex_count=len(attached),triangles=len(leaf['triangles'])))
+            notes.append('Movable partition leaves use decoded native DoorHinge socket poses; interaction/animation is not simulated')
+        result={'vertices':np.asarray(vertices),'triangles':np.asarray(triangles),'uv':uv,'groups':groups,'materials':decoded,
+                **({'components':components} if components else {})}
         self.loaded[key]=result
         self.coverage.append({'item_id':item_id,'source':record['source'],'source_sha256':record['source_sha256'],
-            'triangles':len(triangles),'sections':len(groups),'material_slots':len(materials),
+            'triangles':len(triangles),'sections':len(groups),'material_slots':len(decoded),
             'textured_slots':sum(d['texture'] is not None for d in decoded),'notes':notes,
-            'materials':[{k:v for k,v in d.items() if k!='texture'} for d in decoded]})
+            'materials':[{k:v for k,v in d.items() if k!='texture'} for d in decoded],
+            **({'components':components} if components else {})})
         self.dependencies.update(dependency_snapshot(dependencies))
         if self.resource_cache is not None:self.resource_cache.put(resource_key,result,self.coverage[-1],dependencies)
         return result
