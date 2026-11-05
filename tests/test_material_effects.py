@@ -31,6 +31,17 @@ class MaterialEffectTests(unittest.TestCase):
         self.assertGreater(glass[0]['glass_alpha'], 0.0); self.assertLess(glass[0]['glass_alpha'], 0.5)
         self.assertNotIn('No such file', glass[0].get('warning') or '')
 
+    def test_waterfall_partition_water_is_visible_translucent_water(self):
+        # Waterfall Partition: curtain slot binds M_Rain, basin glow binds a standalone M_BrightWater material.
+        # Both used to vanish (alpha 0.12) or turn into an opaque brown fallback block.
+        m = _load('WaterfallPartition')
+        by = {d['native_reference'].rsplit('/', 1)[-1].split('.')[0]: d for d in m['materials']}
+        rain, water = by['M_Rain'], by['M_BrightWater']
+        self.assertTrue(rain.get('glass')); self.assertGreaterEqual(rain['glass_alpha'], 0.25)
+        self.assertTrue(water.get('glass')); self.assertGreaterEqual(water['glass_alpha'], 0.4)
+        r, g, b = water['flat_color']; self.assertGreater(b, r + 0.2, 'water reads blue, not the brown fallback')
+        self.assertTrue(water.get('emissive'))
+
     def test_masked_masters_are_cut_out(self):
         for folder, slot in (('WalnutFlowerVases', 0), ('BluebirdMobile', 0)):
             with self.subTest(folder=folder):

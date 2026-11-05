@@ -1098,8 +1098,38 @@ class Session:
         "FACING_UNVERIFIED",
         "PILLAR_CONFLICT",
         "WINDOW_OVERLAP",
+        "CEILING_LIGHT_CONFLICT",
     }
     strict = False
+
+    # ceiling heights the renderer hangs the per-level Light fixture from (pipeline.py), centred at (0,0)
+    _CEILING_Z = {"ground": ("Light", "Ground Floor", 6.5), "upper": ("Upper:Light", "Upper Floor", 13.5)}
+    _light_bounds_cache = {}
+
+    def _ceiling_light_disc(self, level):
+        """(radius_m, lowest_z, name) of the level's ceiling-light fixture, or None when unknown/unreadable."""
+        spec = self._CEILING_Z.get(level)
+        if spec is None or level not in getattr(self.room, "levels", ("ground",)):
+            return None
+        key, seed_level, cz = spec
+        name = (self.fixtures.get(key) or {}).get("name")
+        if not name and self.seed:
+            name = next((f.get("name") for f in self.seed.get("interiorFixture", []) if f.get("type") == "Light" and f.get("level") == seed_level), None)
+        if not name:
+            return None
+        if name not in self._light_bounds_cache:
+            try:
+                from ..config import source_path
+                from ..geometry import read_static_mesh_bounds
+
+                folder = source_path("materials") / "HouseAssets/CeilingLight" / "".join(name.split())
+                r = read_static_mesh_bounds(folder / (folder.name + ".uexp"))
+                lo, hi = r["local_min_m"], r["local_max_m"]
+                self._light_bounds_cache[name] = (max(abs(lo[0]), abs(hi[0]), abs(lo[1]), abs(hi[1])), lo[2])
+            except Exception:
+                self._light_bounds_cache[name] = None
+        b = self._light_bounds_cache[name]
+        return None if b is None else (b[0], cz + b[1], name)
 
     def validate(self, inst, issues, op_index=None):
         if self.instances_view is None:
@@ -1149,12 +1179,24 @@ class Session:
                 "FACING_UNVERIFIED",
                 f"{it['name']}: front direction is a default guess (+Y), not measured; `face` may point the wrong way - check the render (back/kneehole/drawers) before trusting it",
             )
+        _disc = self._ceiling_light_disc(_lv)
+        if _disc is not None:
+            from shapely.geometry import Point as _Pt
+
+            _r, _bottom, _name = _disc
+            _top = inst["pivot"][2] + it["hi"][2]
+            if _top > _bottom - 0.05 and fp.intersection(_Pt(0.0, 0.0).buffer(_r)).area > 0.01:
+                add(
+                    "CEILING_LIGHT_CONFLICT",
+                    f"{it['name']} reaches z {_top:.2f} inside the {_name} ceiling light (hangs at the room centre (0,0), radius {_r:.2f} m, down to z {_bottom:.2f}); move it at least {_r:.1f} m off the centre or lower it",
+                )
+        _lift = _zb - (getattr(self.room, "UPPER_Z", 7.0) if _lv == "upper" else (-7.0 if _lv == "basement" else 0.0))   # height above this level's floor
         if it["ptype"] == "wall" or (
             it["ptype"] == "floor"
             and it["hi"][1] - it["lo"][1] < 0.35
             and it["hi"][2] - it["lo"][2] > 0.5
             and (it["hi"][0] - it["lo"][0]) / max(it["hi"][1] - it["lo"][1], 1e-6) > 2.5
-            and inst["pivot"][2] + it["lo"][2] > 0.3
+            and _lift > 0.3
         ):
             from shapely.geometry import Point
 

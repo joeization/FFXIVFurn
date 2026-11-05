@@ -118,6 +118,13 @@ class UpperFloorTest(unittest.TestCase):
         s = mk(); res = s.apply([P('Hingan Sofa', [-8, 5, 7.0], instance_id='up_ok')])   # above the ground-floor hole: valid on the upper floor
         self.assertFalse([w for w in res['warnings'] if w['code'] == 'OUTSIDE_FLOOR'])
         res = s.apply([P('Hingan Sofa', [8, 5, 7.0], instance_id='in_opening')]); self.assertTrue([w for w in res['warnings'] if w['code'] == 'OUTSIDE_FLOOR'])
+    def test_floor_standing_thin_panel_on_upper_floor_is_not_a_wall_item(self):
+        # A slat partition standing on the upper floor (bottom z = 7) is a floor item; the "raised thin panel = wall-hung"
+        # heuristic must use the height above the level's floor, not absolute z (every upper panel was flagged).
+        s = mk(); res = s.apply([P('Wood Slat Partition', [0, -4, 7.0], 90, instance_id='slat_up'), P('Wood Slat Partition', [0, -4, 0.0], 90, instance_id='slat_g')])
+        self.assertFalse([w for w in res['warnings'] if w['code'] == 'WALL_MOUNT_INVALID'], res['warnings'])
+        res = s.apply([P('Wood Slat Partition', [5, -4, 8.5], 90, instance_id='slat_raised')])   # genuinely raised 1.5 m above the upper floor
+        self.assertTrue([w for w in res['warnings'] if w['code'] == 'WALL_MOUNT_INVALID'])
 
     def test_upper_fixtures_export_to_upper_slot(self):
         s = mk(); s.apply([dict(op='fixture', type='Wall', level='upper', item_id=44870), dict(op='fixture', type='Wall', item_id=7138)])
@@ -171,3 +178,16 @@ class DyeTest(unittest.TestCase):
         s.apply([dict(op='dye', instance_id='a', color=None)]); self.assertNotIn('color', s.instances['a'])
         s2 = Session('d2', _cat, _room, tempfile.mkdtemp(), seed_layout=SEED, from_layout=dict(SEED, interiorFurniture=[dict(s.layout_dict()['interiorFurniture'][0], properties={'color': '781A1AFF'})]))
         self.assertEqual(list(s2.instances.values())[0]['color'], '781A1A')
+
+
+class CeilingLightTest(unittest.TestCase):
+    def test_full_height_piece_under_ceiling_light_is_flagged(self):
+        # The ceiling-light fixture hangs at the room centre (0,0); a full-height partition through it clipped the lamp in the app.
+        s = mk(); s.apply([dict(op='fixture', type='Light', level='ground', name='Flat Ceiling Lamp')])
+        r = s.apply([P('White Partition', [0, 0, 0], 0, instance_id='through_lamp'), P('White Partition', [0, -4, 0], 0, instance_id='clear'),
+                     P('Hingan Sofa', [0, 0, 0], 0, instance_id='low_sofa')])
+        ids = [w['instance_id'] for w in r['warnings'] if w['code'] == 'CEILING_LIGHT_CONFLICT']
+        self.assertEqual(ids, ['through_lamp'])
+        self.assertTrue(all(w['severity'] == 'advisory' for w in r['warnings'] if w['code'] == 'CEILING_LIGHT_CONFLICT'))
+        r = s.apply([P('White Partition', [0, 0, 7.0], 0, instance_id='upper_through')])
+        self.assertIn('upper_through', [w['instance_id'] for w in r['warnings'] if w['code'] == 'CEILING_LIGHT_CONFLICT'])

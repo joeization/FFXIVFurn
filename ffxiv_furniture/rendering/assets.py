@@ -149,8 +149,16 @@ class Assets:
                 _master=package.rsplit('/',1)[-1]
                 if package.startswith('/Game/Materials/') and _master in ('M_MasterGlass','M_Rain'):
                     # Slot bound straight to a translucent master (not extracted, no parameters): draw as a pale see-through pane.
-                    entry.update(glass=True,glass_alpha=0.22 if _master=='M_MasterGlass' else 0.12,flat_color=(0.80,0.88,0.92),parent=material['resolved'],
+                    # M_Rain streams (rain windows, waterfall curtains) are clearly visible in game; 0.12 made them vanish.
+                    entry.update(glass=True,glass_alpha=0.22 if _master=='M_MasterGlass' else 0.3,
+                                 flat_color=(0.80,0.88,0.92) if _master=='M_MasterGlass' else (0.72,0.86,0.95),parent=material['resolved'],
                                  warning=f'{_master}: translucent approximation (no refraction/reflection)')
+                    decoded.append(entry);continue
+                if not package.startswith('/Game/Materials/') and _master.startswith('M_') and 'Water' in _master:
+                    # Item-local standalone water material (e.g. Waterfall Partition M_BrightWater): no MI parameters to decode.
+                    # Approximate as glowing translucent water instead of the opaque brown item-colour fallback.
+                    entry.update(glass=True,glass_alpha=0.5,flat_color=(0.45,0.78,0.92),emissive=(0.25,0.55,0.7),parent=material['resolved'],
+                                 warning=f'{_master}: standalone water material approximated as translucent glowing water')
                     decoded.append(entry);continue
                 # Package paths, not file stems with FName numeric suffixes, identify the actual asset.
                 content=next(p for p in path.parents if p.name=='Content')

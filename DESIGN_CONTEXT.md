@@ -91,6 +91,7 @@ Obtain actual dimensions and fixed conditions. Interiors: wall thickness, floor 
 - Interior styles of the same house type can differ completely: some enclose everything under the stairs, others leave it open. Re-read arrivals, usable floor, and enclosed regions from native meshes **in the same session, after selecting the style**; never copy coordinates from another style or session.
 - Read native openings and fixtures first; distinguish fixed transforms from supported style replacements. Holodeck's freely generated shells do not apply.[3]
 - Confirm MCP house type, seed, revision, furniture policy, and renderer gaps. Check image completeness (entrance, stairs, fixtures, scenic textures; no other floors or ceilings mixed into a plan) before judging. An apparent problem may be a rendering error; do not redesign to hide it. Fix the renderer only if authorized; otherwise use other evidence or leave the judgment open.
+- Native ceiling fixtures (e.g. the room-centre ceiling light) are fixed bodies too. A full-height feature placed under one clips it; check tall pieces against them as well as against walls and pillars.
 - Closing off a floor is a brief-specific choice. Every floor in use must remain reachable.
 
 **Keep:** shell notes, fixed and editable elements, required circulation, measurement sources, uncertainties. Pixel placement without coordinate evidence is not measurement.
@@ -154,7 +155,7 @@ Operating areas may overlap at different times if the scenario says so; simultan
 
 ### 4.3 Arrival, staying, and working
 
-Where arrivals need orientation, leave room to stand, turn, and choose before conflicting activity begins; an immediate reveal or screened transition can also be intentional. If a group blocks a route or shows an unwanted wall of seat backs, adjust position, orientation, height, or route. Wall-backed seating, floating sofas, symmetry, winding paths, and focal aisles are all options, none universal. Separate private functions by distance, screening, level, orientation, or enclosure according to the brief.
+Where arrivals need orientation, leave room to stand, turn, and choose before conflicting activity begins; an immediate reveal or screened transition can also be intentional. If a group blocks a route or shows an unwanted wall of seat backs, adjust position, orientation, height, or route. Wall-backed seating, floating sofas, symmetry, winding paths, and focal aisles are all options, none universal. Separate private functions by distance, screening, level, orientation, or enclosure according to the brief. A strong focal piece placed squarely on the door axis can terminate the view but also block the arrival route; check whether the view or the path wins, and consider offsetting the feature so it is seen on arrival without standing in the way. Leftover space between an entrance and a stair foot is often a natural place for arrival storage or a destination cue, if the brief needs one.
 
 **Emptiness is neither proof of good circulation nor a missing function.** Negative space can serve orientation, gathering, performance, views, or restraint. Add a coherent arrangement only for a missing role; keep empty space that already serves the brief.
 
@@ -191,6 +192,18 @@ One possible outcome, not a target. The left plan is not wrong by definition; a 
 - Native interior flooring usually covers a whole floor, so a floor change typically relies on rugs or floor-surface furniture; ceilings and platforms carry the costs in 11.10 and 11.12.
 - If zones are intended, plan and eye-level views show whether they are recognizable without walls.
 
+#### When zones read as separate sets dropped into one house
+
+Legible zones can still fail as a whole if each was composed on its own. Typical signs: every zone has its own furniture family, plant species, rug colour, and light rhythm; groups float at unrelated positions; a programme was added only to vary the plan. Possible relationships to try, chosen for the brief:
+
+- A shared datum: one continuous element (a low casework run, a wall finish, a rail height) that several zones back onto or align with.
+- Shared geometry: group centres on a common line or bay grid; repeated spacing.
+- Repeated, not multiplied, elements: the same light, plant, or rug finish used at a consistent rhythm, often at transitions rather than inside every zone. Repeating an element too densely becomes clutter of its own.
+- One family of tables, chairs, and casework across zones, varied by arrangement and use rather than by style.
+- Editing out pieces from other visual languages instead of adding new ones to "balance" them.
+
+Fewer, related zones often read better than many distinct ones; several seating groups in one house can feel repetitive even when each works, so vary activities only where the brief has them.
+
 The model and user decide whether, where, and how to zone; this supplies vocabulary, not a checklist.
 
 **Keep:** activity/adjacency diagrams, primary/secondary routes, arrival areas, operating faces, expected sightlines. Furniture selection need not be complete yet.
@@ -216,6 +229,8 @@ Small spaces can combine functions through furniture, levels, storage boundaries
 ### 6.1 Search for a role, not a theme name
 
 Name the missing role first (low background, work surface, shared focus, support, masking), then retrieve candidates by meaning, appearance, and dimensions.[3] Check Item ID, scope, region/patch eligibility, acquisition/inventory policy, real dimensions, pivot, thumbnails, both sides of the native mesh, transparent regions, dyeable areas, and support surfaces. If nothing fits, pick another authorized candidate, revisit zoning, or expose the conflict; do not silently buy, duplicate, or drop an essential function. Similar names or embeddings do not mean equivalent shape or use.
+
+When a catalog lacks the obvious piece, a substitute keeps its original identity: a piece designed for an institutional or themed setting still reads as that setting when repurposed for a domestic role. Judge a substitute by how it reads in context, not by dimensions alone. If a category is genuinely absent from the catalog, record it as unavailable and decide with the user how to represent the function, rather than presenting a stand-in as the real thing.
 
 ### 6.2 Keep design intent inspectable
 
@@ -302,6 +317,7 @@ Use **separate reasons and evidence**, not quality scores or pass thresholds. Ar
 - Check names overstate precision: its True Overlap uses 2D OBBs, not mesh collision, and its orientation check passes if any subcheck passes.[11] Keep individual evidence rather than one total.
 - VLM scores are unstable across views, yet image feedback still helps find semantic and facing errors.[11] Use geometry for known facts and multiple views plus judgment for composition; do not rotate furniture blindly on one complaint.
 - Compare before/after diagnostics for the same IDs; one fix must not break support, seats, openings, or routes.
+- Replacing a host piece with one of different dimensions (a thinner wall, a lower table) silently detaches what was mounted on or backed against it. Re-seat dependents after any host swap.
 
 ### 9.2 Choose views for the question
 
@@ -324,6 +340,8 @@ Use only applicable views. Eye-level interior views keep the real ceiling; top-v
 | Too empty | Missing function, layer, or focus, or intentional sparseness? | Add coherent groups only for missing roles, or keep the emptiness |
 | Too crowded | Activity conflicts, ill-fitting assets, blocked views, unintended enclosure, unedited accumulation? | Reorganize, replace within policy, or remove lower-priority content; never stretch furniture or drop essentials |
 | Messy/monotonous | Too many focal pieces, fragmentation, clashing materials, rhythmless repetition? | Groups, backgrounds, distinct uses, material hierarchy |
+| Zones feel unrelated | Does each zone use its own vocabulary, alignment, and rhythm? | Shared datum, alignment, repeated elements, one furniture family (4.4); edit out off-language pieces |
+| Floating / hovering | Does a piece need visible support it does not have (raised slabs, shelves, ceiling rafts)? | Ground it, give it legible support, or remove it; permission to float is not a reason |
 | Scattered/zones unclear | Were distinct areas intended? If so, pieces placed individually, or cues disagreeing? | Possibly regroup or adjust cues (4.4); props or partitions are not the only option |
 | Fake | Unsupported objects, wrong facing, surface-only construction, exposed frames, render distortion? | Geometry, use relationships, construction, or tool verification |
 | Pasted on | Unintended frames, seams, supports, or meant as a freestanding exhibit? | Resolve boundary, depth, junctions; recess only for an architectural illusion |
@@ -388,7 +406,7 @@ Useful content from the HGXIV guide[10], organized by problem. Choose purpose fi
 - These are different paths. Riviera Wall Shelf, Wooden Loft, Stage Panel, and Wooden Beam are tools, not necessarily final components.
 - Disabling surface snap detaches tabletop items; false walls/beams can carry wall items; Stage Panel and some cabinet backs snap differently.
 - Floor furniture has item-specific lift increments and minimum heights; guide "Loft units" are not meters. MCP coordinates do not guarantee persistence after re-entry.
-- Floating still needs intelligible support; confirm support surfaces by mesh sampling and images.
+- Floating still needs intelligible support; confirm support surfaces by mesh sampling and images. Large floor pieces raised as overhead canopies or ceiling rafts tend to read as floors hovering in mid-air unless they visibly join walls, beams, or posts.
 
 ### 11.4 Hangers, cross-floor work, under-stair construction
 - Wooden Beam hangers move wall/tabletop items up or down to expose a part as a handle, frame, or trim; not every item sinks the same way.
