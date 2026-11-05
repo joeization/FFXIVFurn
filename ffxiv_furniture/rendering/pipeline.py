@@ -254,31 +254,48 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
         objects[str(i)]={'instance_id':label,'source':record['source'],'source_sha256':record['source_sha256'],'native_local_transform_assumed_identity':True,
                          **({'texture':override['provenance']} if override else {})}
     selected_door_drawn=False
-    if room_context and house_size=='Small' and apt is not None:
-        from ..interiors import SmallProfile
-        assert isinstance(apt,SmallProfile)
+    if room_context:
+        # Every room size must resolve the selected Door, not just Small.
+        # Small has decoded opening transforms; other sizes retain the documented
+        # north-wall convention and align the selected mesh's actual bounds to it.
+        _native_fixtures=[('Door','MainDoor',None)]
+        if house_size=='Small' and apt is not None:
+            from ..interiors import SmallProfile
+            assert isinstance(apt,SmallProfile)
+            _native_fixtures=[('Window','Window',apt.WINDOWS),('Door','MainDoor',(apt.DOOR,))]
         _ext={f['type']:f for f in layout.get('exteriorFixture',[])}
-        for _kind,_cat,_places in (('Window','Window',apt.WINDOWS),('Door','MainDoor',(apt.DOOR,))):
+        for _kind,_cat,_places in _native_fixtures:
             _f=_ext.get(_kind)
             if not _f:continue
             try:
                 from ..geometry import read_static_mesh_bounds
-                _folder=source_path('materials')/'HouseAssets'/_cat/''.join(_f['name'].replace('(','0x28').replace(')','0x29').split())
-                _rec=read_static_mesh_bounds(_folder/(_folder.name+'.uexp'));_rec['item_id']=-88
+                _stem=''.join(_f['name'].replace('(','0x28').replace(')','0x29').split())
+                _paths=[source_path(k)/'HouseAssets'/_cat/_stem/(_stem+'.uexp') for k in ('materials','houses')]
+                _path=next((p for p in _paths if p.is_file()),_paths[0])
+                _rec=read_static_mesh_bounds(_path);_rec['item_id']=-88
                 _as=Assets([_rec],ROOT/'outputs/render-pipeline/cache',resource_cache=_RESOURCE_CACHE);fixture_asset_loaders.append(_as);_m=_as.load(-88)
+                if _places is None:
+                    _yaw=-180.0
+                    _rot=transform_points(_m['vertices'],dict(translation_m=[0,0,0],yaw_degrees=_yaw,scale=[1,1,1]))
+                    _lo,_hi=_rot.min(axis=0),_rot.max(axis=0)
+                    _wall_y=profile['main-door']['north_wall_y_m']
+                    _places=((-float((_lo[0]+_hi[0])/2),float(_wall_y-_hi[1]),float(-_lo[2]),_yaw),)
+                    _evidence='selected native mesh bounds grounded and centred at the documented north-wall plane; not actor-decoded or app-verified'
+                else:
+                    _evidence='selected fixture at the Small profile decoded opening transform; not app-verified'
                 for _x,_y,_z,_yaw in _places:
                     _wid=allocate_render_id()
                     _w=transform_points(_m['vertices'],dict(translation_m=[_x,_y,_z],yaw_degrees=_yaw,scale=[1,1,1]))
                     for g in _m['groups']:
                         mat=_m['materials'][g['material_index']] if g['material_index']>=0 else None
                         meshes.append({'id':_wid,'vertices':_w,'triangles':_m['triangles'][g['first_triangle']:g['first_triangle']+g['triangle_count']],'uv':_m['uv'],'material':mat,'role':'door' if _kind=='Door' else 'fixture',**({} if mat is not None and mat.get('texture') is not None else {'flat_color':[0.45,0.33,0.22]})})
-                    objects[str(_wid)]={'instance_id':'native-'+_kind.lower(),'name':_f['name'],'position_m':[_x,_y,_z],'note':'native exterior fixture at the decoded umap transform'}
+                    objects[str(_wid)]={'instance_id':'native-'+_kind.lower(),'name':_f['name'],'position_m':[_x,_y,_z],'note':_evidence}
                     if _kind=='Door':
-                        objects[str(_wid)].update(render_id=_wid,mesh_source=_rec['source'],app_verified=False,
+                        objects[str(_wid)].update(render_id=_wid,mesh_source=_rec['source'],source=_rec['source'],source_sha256=_rec['source_sha256'],placement_evidence=_evidence,app_verified=False,
                             world_bounds_m=[[round(float(_w[:,k].min()),3) for k in range(3)],[round(float(_w[:,k].max()),3) for k in range(3)]])
                         objects['main-door']=objects[str(_wid)]
                         selected_door_drawn=True
-                        warnings.append(f"Main entrance door drawn from selected fixture {_f['name']}; placement follows Small profile, not app-verified")
+                        warnings.append(f"Main entrance door drawn from selected fixture {_f['name']}; {_evidence}")
             except Exception as error:warnings.append(f'Native {_kind} not drawn ({type(error).__name__}: {error})')
     if room_context and 'main-door' in profile and not selected_door_drawn:
         # Native main entrance door (user-reported gap: renderer drew an empty entry wall).

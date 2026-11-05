@@ -122,6 +122,27 @@ class MainEntranceRenderTests(unittest.TestCase):
                 for render_id in roles:
                     self.assertIn(str(render_id), manifest['objects'])
 
+    def test_non_small_rooms_render_the_selected_door(self):
+        """Changing Door must change the native mesh, not only the exported fixture."""
+        north_wall = {'Medium': 8.0, 'Large': 12.0, 'Apartment': 8.0}
+        for size, wall_y in north_wall.items():
+            with self.subTest(size=size):
+                manifest = self._run(size, 'Riviera Wooden Door')
+                door = manifest['objects']['main-door']
+                self.assertIn('RivieraWoodenDoor', door['mesh_source'])
+                self.assertEqual(door.get('name'), 'Riviera Wooden Door')
+                doors = [(k, v) for k, v in manifest['objects'].items()
+                         if k.isdigit() and v['instance_id'] in ('main-door', 'native-door')]
+                self.assertEqual(len(doors), 1, 'do not draw both selected and fallback doors')
+                self.assertEqual(doors[0][1], door)
+                self.assertEqual(str(door['render_id']), doors[0][0])
+                self.assertGreater(manifest['views'][0]['visible_object_pixels'].get(doors[0][0], 0), 0)
+                lo, hi = np.asarray(door['world_bounds_m'])
+                self.assertAlmostEqual(hi[1], wall_y, places=2)
+                self.assertAlmostEqual(lo[2], 0.0, places=2)
+                self.assertAlmostEqual((lo[0] + hi[0]) / 2, 0.0, places=2)
+                self.assertFalse(door['app_verified'])
+
     def test_small_selected_door_has_no_duplicate_fallback(self):
         manifest = self._run('Small', 'Riviera Wooden Door')
         doors = [(k, v) for k, v in manifest['objects'].items()
