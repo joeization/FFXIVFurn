@@ -8,9 +8,7 @@ from ffxiv_furniture.layout import build_layout, apply_fixtures
 from ffxiv_furniture.rendering.pipeline import run_pipeline
 
 OUT = ROOT / 'outputs/render-pipeline/multi-size'; OUT.mkdir(parents=True, exist_ok=True)
-SEEDS = {'Medium': ROOT.parent.parent.parent / 'Downloads' / 'x'}  # placeholder replaced below
-SEED_MEDIUM = Path('D:/Downloads/ReMakeplace-V7-57-1/MakePlace/Save/Save.json')
-SEED_LARGE = Path('D:/Downloads/ReMakePlace-agent-inspection/schema-reference/example0.json')
+from ffxiv_furniture.config import local_input
 
 
 def load(p):
@@ -30,6 +28,7 @@ def main():
         mats = {cat: c.execute("SELECT item_id,name FROM house_materials WHERE category=? AND item_id IS NOT NULL ORDER BY item_id LIMIT 1 OFFSET 7", (cat,)).fetchone() for cat in ('Flooring', 'Wallpaper', 'CeilingLight')}
         print('fixtures', mats)
         res = {}
+        SEED_MEDIUM = local_input('DECO_SEED', 'a complete layout JSON you may use'); SEED_LARGE = local_input('FFXIVFURN_LARGE_SEED', 'a complete Large-house layout JSON')
         for size, seedp in (('Medium', SEED_MEDIUM), ('Large', SEED_LARGE), ('Small', SEED_MEDIUM), ('Apartment', SEED_MEDIUM)):
             seed, u16 = load(seedp); seed['houseSize'] = size
             seed['interiorFurniture'] = []; seed['exteriorFurniture'] = []

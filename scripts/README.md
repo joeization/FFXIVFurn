@@ -15,6 +15,7 @@ Prefer package entry points. Do not infer that a historical script is an install
 | Interior planning/final schematic | `python scripts/layout_schematic.py <layout.json>` | Use before placing and after spatial batches, not just at handoff; reads catalog bounds, writes one PNG to `renders/`; no furniture inventory unless `--index` is requested; not a yard renderer |
 | Distribution checks | `check_distribution.py` | Reads Git index; `--directory` checks a prepared distribution directory |
 | Local model image inspection | `describe_render.py <PNG> <question>` | Sends images to an explicitly configured model; may incur charges |
+| Independent design review | `review_deco.py <round-dir> --program-file program.txt --models <a>,<b>` | Sends the round's PNG sheets to operator-chosen reviewer models via the `agy` CLI (`--models` or `DECO_REVIEW_MODELS`, no default); the program must state what was asked for, not results (claims/pre-excuses are rejected); ok only if every run is ok. See DESIGN_CONTEXT 9.6; uses model quota |
 | Maintenance/experiments | `build_*`, `fill_*`, `review_*`, etc. | Read the code first; may depend on private history, write databases, or call models |
 
 Python MCP/offline/audit launchers use the current `sys.executable`, not a hardcoded external venv. Bash wrappers accept an executable through `PYTHON`, otherwise selecting `.venv/bin/python`/`.venv/Scripts/python.exe`. They still use GNU timeout; prefer Python entry points for portability. Filenames remain unchanged to preserve existing calls and historical references.

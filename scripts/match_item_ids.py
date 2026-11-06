@@ -6,7 +6,6 @@ Validated against the 57 independently known layout IDs. Writes outputs/item-id-
 from pathlib import Path
 import csv, json, re, hashlib, collections, sys
 ROOT = Path(__file__).resolve().parents[1]
-INSP = Path('D:/Downloads/ReMakePlace-agent-inspection')
 OUT = ROOT / 'outputs/item-id-match'
 
 
@@ -29,6 +28,8 @@ def main():
     items = [(int(r[col['#']]), r[col['Name']], r[col['ItemUICategory']], r[col['ItemSearchCategory']]) for r in rows[1:] if r and r[col['#']].isdigit() and r[col['Name']]]
     by = collections.defaultdict(list)
     for iid, name, ui, sc in items: by[compact(name)].append({'item_id': iid, 'name': name, 'ui_category': ui, 'search_category': sc})
+    sys.path.insert(0, str(ROOT)); from ffxiv_furniture.config import local_input
+    INSP = local_input('FFXIVFURN_INSPECTION_DIR', 'your ReMakePlace inspection directory')
     catalog = json.loads((INSP / 'asset-folder-catalog.json').read_text(encoding='utf-8'))
     manifest = {a['asset_key']: a for a in json.loads((ROOT / 'runs/round1/manifest.json').read_text(encoding='utf-8'))['assets']}
     known = {}

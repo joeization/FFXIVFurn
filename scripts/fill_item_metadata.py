@@ -10,7 +10,6 @@ from contextlib import closing
 import collections, csv, datetime, json, re, sqlite3, struct, sys
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / 'data/furniture.sqlite3'
-ITEMDATA = Path('D:/Downloads/ReMakePlace-agent-inspection/data-legacy/MakePlace/Content/Data/ItemData.uexp')
 
 
 def fstr(b, o):
@@ -47,7 +46,8 @@ def parse_itemdata(d):
 
 
 def main():
-    recs = parse_itemdata(ITEMDATA.read_bytes())
+    from ffxiv_furniture.config import local_input
+    recs = parse_itemdata((local_input('FFXIVFURN_INSPECTION_DIR', 'your ReMakePlace inspection directory') / 'data-legacy/MakePlace/Content/Data/ItemData.uexp').read_bytes())
     by = collections.defaultdict(list)
     for n, i in recs: by[n.lower()].append(i['Patch'])
     rows = list(csv.reader((ROOT / 'data/external/Item.csv').open(encoding='utf-8'))); h = rows[0]

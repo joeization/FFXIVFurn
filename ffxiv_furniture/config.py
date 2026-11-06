@@ -106,6 +106,15 @@ def source_path(key, *, root=None):
     return Path(load_sources(root=root)[key])
 
 
+def local_input(env, what):
+    """Operator-provided local path from an environment variable. The repository ships no private path defaults:
+    DECO_SEED (a complete layout/app save you may use), FFXIVFURN_LARGE_SEED, FFXIVFURN_INSPECTION_DIR (retoc inspection output)."""
+    value = os.environ.get(env)
+    if not value or not value.strip():
+        raise SystemExit(f"Set {env} to {what}; no private default path is provided.")
+    return Path(value)
+
+
 def catalog_path():
     root = Path(__file__).resolve().parents[1]
     return Path(os.environ.get("FFXIVFURN_DB") or root / "data/furniture.sqlite3").resolve()

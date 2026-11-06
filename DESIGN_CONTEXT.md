@@ -363,6 +363,16 @@ AesthetiQ trains on relative preferences between rendered 2D graphic layouts rat
 4. 2D alignment/low-overlap heuristics do not ban 3D overlap.
 5. Its judge results do not establish this user's taste or 3D comfort; adding the reference does not launch training or paid judging.[12]
 
+### 9.6 Independent model review
+
+A model reviewer is useful only if it is independent of whoever made the design. Measured on this project with planted defects (seats facing walls, blocked entry, floating/clipping, clutter, emptiness) and three runs per image: capable hosted vision models caught every defect with stable scores, while a small local vision model missed facing and entry blocking entirely and varied by up to 5 points on one image. Benchmark a reviewer this way before trusting it. Independence matters as much as capability: a capable reviewer approved a broken house ("ok") when the orchestrator's prompt described the design as already working, and scored the same sheets 3/10 "revise" in four of four runs once those claims were removed; the issues it then found matched the owner's later complaints (doors filled by partitions, stacked furniture, a yard path missing the door).
+
+- **Separate roles.** The orchestrator builds and fixes; it does not write the review question, choose what the reviewer may ignore, or decide acceptance. A model that failed the reviewer benchmark may execute edits, run diagnostics, and export, but must not orchestrate or perform review.
+- **Give the reviewer the program, not the result.** Pass what the owner asked for (users, activities, required functions, style), the tool's real preview limits, and a fixed checklist: doors passable, overlap/floating/support, facing, entrance and route alignment, each required function present, emptiness vs clutter. Never state that something is verified, intentional, kept clear, or should not be flagged. `scripts/review_deco.py` rejects such wording.
+- **Fixed views.** Every review covers the entrance from the threshold and back toward the door, each door or doorway from the room it serves, every zone at eye level, each stair arrival, a plan per floor, and the yard gate-to-door axis when a yard exists. The orchestrator may add views but not drop these.
+- **Fresh rounds, unanimous pass.** Review each round from scratch; asking "is your previous issue fixed?" converges toward approval. Use at least two independent runs, preferably from different benchmarked models; acceptance needs every run to be "ok" with no must-issue. An issue from a single run is a hint: confirm it with geometry or your own view before changing furniture.
+- **Two gates, both required.** Model acceptance does not replace the analyzer facts (overlaps, unreachable furniture, door passage, stair access, unsupported pieces), and clean analyzer output does not replace the visual review. Owner feedback outranks both.
+
 ## 10. Validate and deliver an editable design
 
 Completion does not mean using every slot. Delivery explains the problem, concept, plan and vertical solution, and remaining evidence gaps.[9]
@@ -382,6 +392,7 @@ Completion does not mean using every slot. Delivery explains the problem, concep
 - [ ] Snapshots and stable IDs preserved; revision-guarded atomic batches; after a timeout, read back before replaying.
 - [ ] Preview limits, intentional overlaps/floating, and untested items listed; protected elements and out-of-scope payloads match the baseline.
 - [ ] Required doors, characters/cameras, stairs, sitting/teleport interactions, floating persistence after re-entry, and lighting tested in the target app where applicable. Untested is not passed.
+- [ ] Independent review (9.6) passed on the final revision with the fixed view set: every run "ok", analyzer gates clean; earlier-round approvals are not reused.
 
 **Delivery supports continuation**
 

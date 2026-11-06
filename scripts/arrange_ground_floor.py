@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import sys
 
@@ -42,7 +43,7 @@ def rotated_bounds(g,pivot,yaw):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--db',default=str(ROOT/'data/furniture-test.sqlite3'))
-    p.add_argument('--seed',default='D:/Downloads/ReMakeplace-V7-57-1/MakePlace/Save/Save.json')
+    p.add_argument('--seed',default=os.environ.get('DECO_SEED'),help='complete layout JSON (default: $DECO_SEED)')
     p.add_argument('--output-dir',default=str(ROOT/'outputs/ground-floor'))
     a=p.parse_args();out=Path(a.output_dir);out.mkdir(parents=True,exist_ok=True)
     source_records=json.load(open(ROOT/'outputs/geometry/fill-result.json',encoding='utf-8'))['records']

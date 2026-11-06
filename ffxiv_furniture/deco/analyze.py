@@ -92,13 +92,15 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
         for i in range(nx):
             if pending[j, i] and not lab[j, i]:
                 comp = _flood(pending, (j, i)); lab |= comp; a = float(comp.sum() * STEP * STEP)
-                if a >= 1.0:
+                if a >= 0.5:
                     jj, ii = np.where(comp); unreachable.append(dict(area_m2=round(a, 1), centre=[round(float(xs[ii].mean()), 1), round(float(ys[jj].mean()), 1)], reachable_at_zero_width=bool(reach_any[comp].any())))
     no_access = []
     for inst, it, fp, zb, zt in items:
         if it['ptype'] in ('rug', 'wall') or zb > 0.3 or any(k in inst['name'].lower() for k in STRUCT): continue   # things resting on tables/shelves are reached via their support
         cs = [cell(x, y) for x, y in list(fp.buffer(0.5).exterior.coords)[::3]]
         if not any(near[a, b] for a, b in cs): no_access.append(dict(instance_id=inst['id'], name=inst['name']))
+    # tables first: a seat's own accompanying table never counts as blocking its front (tucked-in chairs are normal)
+    tables = [(i, fp) for i, it, fp, zb, zt in items if it['supports_top'] and 0.45 < zt - zb < 1.3 and it['ptype'] == 'floor' and not any(k in i['name'].lower() for k in SEAT)]
     # front clearance of seats / tall storage
     front = []; obstacles = [(o[0]['id'], o[2]) for o in items if o[1]['ptype'] not in ('rug', 'wall') and o[4] - o[3] > 0.3 and o[3] < 1.4]
     for inst, it, fp, zb, zt in items:
@@ -110,10 +112,13 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
         c = fp.centroid; cx, cy = c.x + math.cos(fa) * (ext * 0.5 + front_depth / 2 + 0.2), c.y + math.sin(fa) * (ext * 0.5 + front_depth / 2 + 0.2)
         rect = affinity.rotate(box(cx - w / 2, cy - front_depth / 2, cx + w / 2, cy + front_depth / 2), math.degrees(fa), origin=(cx, cy))
         others = [g for i, g in obstacles if i != inst['id']]
+        if is_seat and tables:
+            ti, tfp = min(tables, key=lambda t: t[1].distance(fp))
+            if tfp.distance(fp) <= 1.6: others = [g for i, g in obstacles if i not in (ti['id'], inst['id'])]
         blk = unary_union(others).intersection(rect).area if others else 0.0; out = rect.difference(floor).area
         if min(1.0, (blk + out) / rect.area) > 0.3: front.append(dict(instance_id=inst['id'], name=inst['name'], facing_deg=v['facing_deg'], front_blocked_fraction=round(min(1.0, (blk + out) / rect.area), 2), wall_or_edge_part=round(out / rect.area, 2)))
     # seat -> nearest table facing error
-    tables = [(i, fp) for i, it, fp, zb, zt in items if it['supports_top'] and 0.45 < zt - zb < 1.3 and it['ptype'] == 'floor' and not any(k in i['name'].lower() for k in SEAT)]; orient = []
+    orient = []
     for inst, it, fp, zb, zt in items:
         if not tables or it['ptype'] != 'floor' or zt - zb > 1.8 or not any(k in inst['name'].lower() for k in SEAT): continue
         ti, tfp = min(tables, key=lambda t: t[1].distance(fp)); d = tfp.distance(fp)
@@ -156,7 +161,17 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
                 if _Poly(pts).buffer(0.03).contains(c): ok = True; break
             if ok: break
         if not ok: unsupported.append(dict(instance_id=inst['id'], name=inst['name'], bottom_above_floor_m=round(zb, 2)))
-    return dict(ok=True, level=level, revision=sess.revision, enclosures=enclosures, unsupported=unsupported, note='facts only: nothing here blocks an edit; overlap and tight placements are legal in FFXIV',
+    # furniture-vs-furniture overlaps: legal in FFXIV but almost always a design accident (the user's "家具疊在一起"); reported for every pair, stacked placements excluded
+    overlaps = []
+    hard = [(inst, fp, zb, zt) for inst, it, fp, zb, zt in items if it['ptype'] not in ('rug', 'wall', 'ceiling') and zt - zb >= 0.3 and zb < 1.4 and not any(k in inst['name'].lower() for k in STRUCT)]
+    for _i in range(len(hard)):
+        for _j in range(_i + 1, len(hard)):
+            a, b = hard[_i], hard[_j]
+            if a[2] >= b[3] - 0.12 or b[2] >= a[3] - 0.12: continue   # one rests on top of the other: legal stacking
+            area = a[1].intersection(b[1]).area
+            if area > 0.05: overlaps.append(dict(a=a[0]['id'], a_name=a[0]['name'], b=b[0]['id'], b_name=b[0]['name'], overlap_m2=round(area, 2)))
+    overlaps.sort(key=lambda d: -d['overlap_m2'])
+    return dict(ok=True, level=level, revision=sess.revision, enclosures=enclosures, unsupported=unsupported, overlaps=overlaps, note='facts only: nothing here blocks an edit; overlap and tight placements are legal in FFXIV',
                 reachability=dict(start=[sx, sy], path_width_m=path_width, walkable_m2=round(float(free.sum() * STEP * STEP), 1), unreachable_regions=unreachable, instances_without_access=no_access[:30]),
                 front_clearance=sorted(front, key=lambda d: -d['front_blocked_fraction'])[:30], seat_orientation=orient[:30],
                 wall_alignment=dict(tall_items=len(tall), floating_0p3_to_1p2m_off_wall=[t for t in tall if 0.3 < t['gap_to_wall_m'] < 1.2][:30], off_axis=[t for t in tall if 3 < t['off_axis_deg'] < 87][:30]),

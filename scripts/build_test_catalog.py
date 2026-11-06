@@ -8,6 +8,7 @@ from collections import defaultdict,Counter
 import csv
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -69,8 +70,8 @@ def canonical_id(concepts,cid):
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run-dir',default=str(ROOT/'runs/round1'))
-    p.add_argument('--inspection-dir',default='D:/Downloads/ReMakePlace-agent-inspection')
-    p.add_argument('--seed',default='D:/Downloads/ReMakeplace-V7-57-1/MakePlace/Save/Save.json')
+    p.add_argument('--inspection-dir',default=os.environ.get('FFXIVFURN_INSPECTION_DIR'),help='default: $FFXIVFURN_INSPECTION_DIR')
+    p.add_argument('--seed',default=os.environ.get('DECO_SEED'),help='complete layout JSON (default: $DECO_SEED)')
     p.add_argument('--db',default=str(ROOT/'data/furniture-test.sqlite3'))
     p.add_argument('--output-dir',default=str(ROOT/'outputs/test-db-demo'))
     a=p.parse_args(argv)

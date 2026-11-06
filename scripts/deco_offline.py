@@ -31,6 +31,7 @@ def digest(a):
         no_access=[x["name"] for x in r["instances_without_access"]][:10],
         front_blocked=[(x["name"], x["front_blocked_fraction"]) for x in a["front_clearance"]][:6],
         worst_facing=[(o["name"], o["facing_error_deg"]) for o in a["seat_orientation"][:4]],
+        overlaps=[(x["a"], x["a_name"], x["b"], x["b_name"], x["overlap_m2"]) for x in a.get("overlaps", [])][:10],
         covered=a["balance"]["covered_fraction"],
         thirds=[t["covered_fraction"] for t in a["balance"]["by_third"]],
     )
@@ -98,6 +99,9 @@ async def main(session, plan, style):
                 adv = [
                     w_["code"] for w_ in p.get("warnings", []) if w_.get("severity") == "advisory"
                 ]
+                for w_ in p.get("warnings", []):
+                    if w_.get("severity") == "advisory":
+                        say(f"   ADV {w_['code']} {w_.get('instance_id')} {str(w_.get('message'))[:110]}")
                 blocked = [
                     (w_.get("instance_id"), w_["message"][:60])
                     for w_ in p.get("warnings", [])

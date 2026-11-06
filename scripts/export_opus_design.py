@@ -9,6 +9,7 @@ from ffxiv_furniture import FurnitureDB
 from ffxiv_furniture.geometry_mesh import read_static_mesh_triangles
 from ffxiv_furniture.housing import validate_layout_budget
 from ffxiv_furniture.layout import build_layout
+from ffxiv_furniture.config import local_input
 spec=importlib.util.spec_from_file_location('ground',ROOT/'scripts/arrange_ground_floor.py');ground=importlib.util.module_from_spec(spec);spec.loader.exec_module(ground)
 
 
@@ -35,7 +36,7 @@ def main():
             pivot=[px,py,base-g['min_z']]
             inst={**row,'name':item['name'],'pivot_m':pivot,'bounds':ground.rotated_bounds(g,pivot,yaw)}
             instances.append(inst);by_label[row['label']]=inst
-        seed_path=Path('D:/Downloads/ReMakeplace-V7-57-1/MakePlace/Save/Save.json');seed_bytes=seed_path.read_bytes();seed=json.loads(seed_bytes)
+        seed_path=local_input('DECO_SEED', 'a complete layout JSON you may use');seed_bytes=seed_path.read_bytes();seed=json.loads(seed_bytes)
         scale=seed['interiorScale']
         layout=build_layout(db,seed,[{'item_id':i['item_id'],'location':[v*scale for v in i['pivot_m']],'yaw_degrees':i['yaw_degrees']} for i in instances])
     floor_record=json.loads((ROOT/'outputs/geometry/house-bounds.json').read_text(encoding='utf-8'))[0]

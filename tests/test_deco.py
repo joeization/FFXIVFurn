@@ -150,6 +150,32 @@ class AnalyzeTest(unittest.TestCase):
         self.assertLess(ok, 3); self.assertAlmostEqual(bad, 40, delta=3)
 
 
+class AnalyzeFactsTest(unittest.TestCase):
+    def test_overlapping_floor_items_flagged(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        s = mk(); s.apply([P('Hingan Sitting Table', [0, -5, 0], instance_id='t1'), P('Hingan Sitting Table', [0.3, -5, 0], instance_id='t2')])
+        pairs = {(x['a'], x['b']) for x in analyze(s)['overlaps']}
+        self.assertIn(('t1', 't2'), pairs)
+
+    def test_supported_stack_and_rug_are_not_overlaps(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        s = mk()
+        s.apply([P('Hingan Sitting Table', [0, -5, 0], instance_id='t'), P('Combed Wool Rug', [0, -5, 0], instance_id='r'), dict(op='place_on', name='Encyclopedia Eorzea', target_id='t', offset_xy=[0, 0], instance_id='bk')])
+        a = analyze(s)['overlaps']
+        self.assertEqual([x for x in a if 'bk' in (x['a'], x['b']) or 'r' in (x['a'], x['b'])], [])
+
+    def test_seat_tucked_at_its_table_not_front_blocked(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        s = mk(); s.apply([P('Hingan Sitting Table', [0, -5, 0], instance_id='t'), P('Hingan Chair', [0, -4.2, 0], 180, instance_id='c')])
+        self.assertNotIn('c', [x['instance_id'] for x in analyze(s)['front_clearance']])
+
+    def test_seat_blocked_by_other_furniture_front_flagged(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        s = mk(); s.apply([P('Hingan Chair', [0, -4.2, 0], 0, instance_id='c'), P('Hingan Sofa', [0, -2.8, 0], 180, instance_id='sofa')])
+        hits = [x for x in analyze(s)['front_clearance'] if x['instance_id'] == 'c']
+        self.assertTrue(hits and hits[0]['front_blocked_fraction'] > 0.5)
+
+
 class AnalyzeUpperTest(unittest.TestCase):
     def test_upper_level_sees_upper_items(self):
         from ffxiv_furniture.deco.analyze import analyze

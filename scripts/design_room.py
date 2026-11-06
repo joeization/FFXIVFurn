@@ -16,10 +16,10 @@ from ffxiv_furniture.design.plan import request_plan, validate_plan, MODEL
 from ffxiv_furniture.design.concept import request_hierarchical_plan, room_facts
 from ffxiv_furniture.design.resolve import resolve_furniture, resolve_fixtures
 from ffxiv_furniture.design.place import place_all
+from ffxiv_furniture.config import local_input
 from ffxiv_furniture.design.rerank import rerank
 
-SEEDS = {'Medium': Path('D:/Downloads/ReMakeplace-V7-57-1/MakePlace/Save/Save.json'),
-         'Large': Path('D:/Downloads/ReMakePlace-agent-inspection/schema-reference/example0.json')}
+SEEDS = {'Medium': lambda: local_input('DECO_SEED', 'a complete layout JSON you may use'), 'Large': lambda: local_input('FFXIVFURN_LARGE_SEED', 'a complete Large-house layout JSON')}   # operator-provided; no private defaults
 
 
 def read_json_any(p):
@@ -42,7 +42,7 @@ def main(argv=None):
     cap = HOUSING_LIMITS[a.house_size]['interior']
     if a.max_items is None: a.max_items = cap
     if not 1 <= a.max_items <= cap: raise SystemExit(f'max-items must be 1..{cap}')
-    seedp = a.seed or SEEDS.get(a.house_size)
+    seedp = a.seed or (SEEDS[a.house_size]() if a.house_size in SEEDS else None)
     if seedp is None: raise SystemExit(f'No real seed save for {a.house_size}; pass --seed')
     a.out.mkdir(parents=True, exist_ok=True)
     room = room_bounds(ROOT, a.house_size); room['polygon'] = room_polygon(ROOT, a.house_size); room['keepouts'] = room_keepouts(ROOT, a.house_size, 'ground')
