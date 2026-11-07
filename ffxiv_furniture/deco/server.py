@@ -141,6 +141,36 @@ SMALL_CAMERAS = {
 }
 
 
+def _generated_cameras(room, levels=None):
+    """Plan/overview/eye-level cameras per level from the level's real floor bounds (used for Large, and for the Medium basement).
+    Prefixes: '' ground, 'up_' upper, 'bs_' basement. Plan views are cutaways that hide the other floors."""
+    out = {}
+    for lvl in levels or room.levels:
+        poly = room.polys.get(lvl)
+        if poly is None or poly.is_empty:
+            continue
+        x0, y0, x1, y1 = poly.bounds; cx, cy = (x0 + x1) / 2, (y0 + y1) / 2; r = max(x1 - x0, y1 - y0)
+        z = room.level_z[lvl]; p = {"ground": "", "upper": "up_", "basement": "bs_"}[lvl]
+        flag = {"upper": {"upper": True}, "basement": {"basement": True}}.get(lvl, {})
+        hide = dict(hide_below_z=z - 0.6, hide_above_z=z + 4.6)   # plan cutaway: this floor only, pendants/ceiling lights removed
+        out[p + "overview"] = dict(position=[cx + 0.55 * r, cy - 0.55 * r, z + 0.7 * r], target=[cx, cy, z], fov=60, cutaway=True, **hide, **flag)
+        out[p + "top"] = dict(position=[cx, cy - 0.5, z + 1.45 * r], target=[cx, cy, z], fov=44, cutaway=True, **hide, **flag)   # tiny y tilt keeps +x horizontal
+        e = z + 2.6; m = 1.0
+        out[p + "north"] = dict(position=[cx, y0 + m, e], target=[cx, y1, z + 1.3], fov=80, **flag)
+        out[p + "south"] = dict(position=[cx, y1 - m, e], target=[cx, y0, z + 1.3], fov=80, **flag)
+        out[p + "west"] = dict(position=[x1 - m, cy, e], target=[x0, cy, z + 1.3], fov=85, **flag)
+        out[p + "east"] = dict(position=[x0 + m, cy, e], target=[x1, cy, z + 1.3], fov=85, **flag)
+        if lvl == "ground":
+            dx, dy = room.door_xy
+            out["entry"] = dict(position=[dx, dy - 0.6, 2.4], target=[cx, cy - (dy - cy), 1.2], fov=85)
+        info = room.stair_info()
+        land = (info.get("up") or {}).get("top") if lvl == "upper" else ((info.get("basement") or {}).get("foot") if lvl == "basement" else None)
+        if land is not None and not land.is_empty:
+            lc = land.centroid
+            out[p + "stair" if lvl == "basement" else p + "entry"] = dict(position=[lc.x, lc.y, e], target=[cx, cy, z + 1.2], fov=85, **flag)
+    return out
+
+
 def _cameras():
     if _sess is None:
         return CAMERAS
@@ -158,7 +188,15 @@ def _cameras():
             east=dict(position=[x1 + 4, cy, 2.6], target=[cx, cy, 2], fov=85),
             west=dict(position=[x0 - 4, cy, 2.6], target=[cx, cy, 2], fov=85),
         )
-    return {"Apartment": APT_CAMERAS, "Small": SMALL_CAMERAS}.get(_sess.room.house_size, CAMERAS)
+    size = _sess.room.house_size
+    if size in ("Apartment", "Small"):
+        return {"Apartment": APT_CAMERAS, "Small": SMALL_CAMERAS}[size]
+    if size == "Large":
+        return _generated_cameras(_sess.room)
+    cams = dict(_generated_cameras(_sess.room), **CAMERAS)   # Medium: tuned ground/upper views win; generated ones fill gaps (top, bs_*)
+    for k in ("overview", "overview_ne", "overview_nw"):   # ground plans must not show basement furniture through the stair hole
+        cams[k] = dict(cams[k], hide_below_z=-0.6)
+    return cams
 
 
 mcp = FastMCP(
@@ -453,8 +491,8 @@ def inspect(
 
 @mcp.tool()
 def list_interiors() -> dict:
-    """List the seven Medium interior styles and explicit render/level capability. App equivalence is not claimed."""
-    from ffxiv_furniture.interiors import list_interiors as choices, APT_STYLES
+    """List the interior styles available for this session's house size, with the levels each provides. App equivalence is not claimed."""
+    from ffxiv_furniture.interiors import STYLES, APT_STYLES, SMALL_STYLES, LARGE_STYLES, InteriorProfile, SmallProfile, LargeProfile, ApartmentProfile
 
     s = _boot()
     if getattr(getattr(s, "cat", None), "scope", "interior") == "exterior":
@@ -464,38 +502,10 @@ def list_interiors() -> dict:
             scope="exterior",
             note="Use search_materials/set_exterior for exterior appearances.",
         )
-    if s.room.house_size == "Apartment":
-        return dict(
-            ok=True,
-            interiors=[
-                dict(
-                    style=x,
-                    house_size="Apartment",
-                    renderable=True,
-                    levels=["ground"],
-                    app_verified=False,
-                )
-                for x in APT_STYLES
-            ],
-        )
-    if s.room.house_size == "Small":
-        from ffxiv_furniture.interiors import SMALL_STYLES
-
-        return dict(
-            ok=True,
-            interiors=[
-                dict(
-                    style=x,
-                    house_size="Small",
-                    renderable=True,
-                    levels=["ground"],
-                    app_verified=False,
-                )
-                for x in SMALL_STYLES
-            ],
-        )
-    return dict(ok=True, interiors=choices())
-
+    size = s.room.house_size
+    styles, prof = {"Apartment": (APT_STYLES, ApartmentProfile), "Small": (SMALL_STYLES, SmallProfile),
+                    "Large": (LARGE_STYLES, LargeProfile)}.get(size, (STYLES, InteriorProfile))
+    return dict(ok=True, interiors=[dict(style=x, house_size=size, renderable=True, levels=list(prof.levels), app_verified=False) for x in styles])
 
 @mcp.tool()
 def set_interior(style: str, expected_revision: int | None = None) -> dict:
@@ -783,7 +793,7 @@ def _render_impl(
             m = run_pipeline(
                 lay,
                 out,
-                basement_context=need_bs and s.room.house_size == "Small",
+                basement_context=need_bs and "basement" in s.room.levels,
                 room_context=True,
                 rough_room_finish=True,
                 size=(width, height),

@@ -64,7 +64,7 @@ For other MCP applications, set `command` to the absolute virtual-environment Py
 
 ## Support and workflow
 
-Interior support: Small ground floor/basement, 300 items; Medium ground/upper floors, 450 items, with incomplete basement support; Apartment single floor, 150 items. Large interior MCP is unsupported. House size comes from the seed; it is not silently replaced.
+Interior support: Small ground floor/basement, 300 items; Medium ground/upper/basement, 450 items; Large ground/upper/basement, 600 items; Apartment single floor, 150 items. House size comes from the seed (`data/seeds/{small,medium,large,apartment}-seed.json`, local); it is not silently replaced. Medium/Large basement outlines are sliced from the native frame and stair meshes at 1 m (the shared BasementFloor mesh does not parse, so the renderer synthesises that floor). Large stairs, railings and Medium/Large windows and doors come from decoded map actors. Inspect `openings` lists each level's own windows. Large cameras are generated per level (`top`, `overview`, `north`/`south`/`east`/`west`, `entry`; `up_*` and `bs_*` likewise), and Medium adds `top` and `bs_*` to its tuned views. None of this is app-verified yet.
 
 For yards, use `DECO_SCOPE=exterior` and another session name. S/M/L budgets are 40/60/80 items respectively. `search_materials` kinds are `wall`, `roof`, `fence`, `door`, `window`, `roof_decor`, `wall_decor`, and `placard`. Pass exact names or Item IDs through the corresponding `set_exterior` parameters, together with `expected_revision`. Roofs/walls are filtered by Cottage/House/Mansion size and retain native actor positions.
 

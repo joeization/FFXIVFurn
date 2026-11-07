@@ -251,7 +251,8 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
     # wall_gaps: narrow slits between full-height partitions / pillars / the room wall. Too narrow to walk (<0.6 m) but wide enough
     # (>3 cm) to leak an enclosure, so a room that should be sealed silently is not. Reported with the gap centre so it can be closed.
     wall_gaps = []
-    seal = [(inst['id'], sess.footprint(inst)) for inst, it, fp, zb, zt in items if 'partition' in inst['name'].lower() and zt - zb >= 3.0]
+    seal = [(inst['id'], sess.footprint(inst)) for inst, it, fp, zb, zt in items
+            if any(k in inst['name'].lower() for k in ('partition', 'pillar')) and zt - zb >= 3.0]   # full-height furniture posts seal too
     seal_ids = {sid: k for k, (sid, _) in enumerate(seal)}
     others = seal + [(f'pillar-{k}', g) for k, g in enumerate(room.pillars_by_level.get(level, []))] + [('room-wall', floor.exterior)]
     from shapely.ops import nearest_points

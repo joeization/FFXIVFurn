@@ -152,6 +152,9 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
     from ..interiors import InteriorProfile, geometry as interior_geometry, transform_points, validate_style
     validate_style(district)
     interior=InteriorProfile(district) if house_size=='Medium' else None
+    if house_size=='Large':
+        from ..interiors import LargeProfile
+        interior=LargeProfile(district)
     apt=None
     if house_size=='Apartment':
         from ..interiors import ApartmentProfile
@@ -187,6 +190,13 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             rec=_mesh(_n)
             if rec: room_records.append(('bs-'+_n,rec))
         warnings.append('Basement context: Small basement meshes translated -7 m (stair actor z); walls use the selected district where available; not app-verified.')
+    bs_synth_floor=False
+    if room_context and basement_context and interior is not None and 'basement' in getattr(interior,'levels',()):
+        for name in ('floor','room-frame','ceiling','walls','pillars'):
+            rec=interior.record(name,'basement')
+            if rec is not None: room_records.append(('bs-'+name,rec))
+            elif name=='floor': bs_synth_floor=True   # Medium: shared BasementFloor mesh does not parse; synthesise from the outline
+        warnings.append(f'Basement context: {house_size} basement meshes translated -7 m (map actor z); not app-verified.')
     if room_context and upper_context and interior:
         for name in ('floor','room-frame','ceiling','walls','pillars'):
             room_records.append(('up-'+name,interior.record(name,'upper')))
@@ -263,6 +273,11 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             from ..interiors import SmallProfile
             assert isinstance(apt,SmallProfile)
             _native_fixtures=[('Window','Window',apt.WINDOWS),('Door','MainDoor',(apt.DOOR,))]
+        elif interior is not None and hasattr(interior,'openings'):
+            # Medium/Large: windows at their decoded map actor transforms, per drawn level (no basement windows exist)
+            _lv=['ground']+(['upper'] if upper_context else [])
+            _wins=tuple((o['xy'][0],o['xy'][1],o['z'][0],o.get('yaw',0.0)) for l in _lv for o in interior.openings(l) if o['kind']=='window')
+            if _wins:_native_fixtures=[('Window','Window',_wins),('Door','MainDoor',None)]
         _ext={f['type']:f for f in layout.get('exteriorFixture',[])}
         for _kind,_cat,_places in _native_fixtures:
             _f=_ext.get(_kind)
@@ -282,13 +297,13 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
                     _places=((-float((_lo[0]+_hi[0])/2),float(_wall_y-_hi[1]),float(-_lo[2]),_yaw),)
                     _evidence='selected native mesh bounds grounded and centred at the documented north-wall plane; not actor-decoded or app-verified'
                 else:
-                    _evidence='selected fixture at the Small profile decoded opening transform; not app-verified'
+                    _evidence=f'selected fixture at the {house_size} decoded opening transform; not app-verified'
                 for _x,_y,_z,_yaw in _places:
                     _wid=allocate_render_id()
                     _w=transform_points(_m['vertices'],dict(translation_m=[_x,_y,_z],yaw_degrees=_yaw,scale=[1,1,1]))
                     for g in _m['groups']:
                         mat=_m['materials'][g['material_index']] if g['material_index']>=0 else None
-                        meshes.append({'id':_wid,'vertices':_w,'triangles':_m['triangles'][g['first_triangle']:g['first_triangle']+g['triangle_count']],'uv':_m['uv'],'material':mat,'role':'door' if _kind=='Door' else 'fixture',**({} if mat is not None and mat.get('texture') is not None else {'flat_color':[0.45,0.33,0.22]})})
+                        meshes.append({'id':_wid,'vertices':_w,'triangles':_m['triangles'][g['first_triangle']:g['first_triangle']+g['triangle_count']],'uv':_m['uv'],'material':mat,'role':'door' if _kind=='Door' else 'window',**({} if mat is not None and mat.get('texture') is not None else {'flat_color':[0.45,0.33,0.22]})})
                     objects[str(_wid)]={'instance_id':'native-'+_kind.lower(),'name':_f['name'],'position_m':[_x,_y,_z],'note':_evidence}
                     if _kind=='Door':
                         objects[str(_wid)].update(render_id=_wid,mesh_source=_rec['source'],source=_rec['source'],source_sha256=_rec['source_sha256'],placement_evidence=_evidence,app_verified=False,
@@ -345,6 +360,18 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
                                           'note': 'floor outside the style basement outline (sliced native walls); drawn dark in cutaway plans only'}
         except Exception as _e:
             warnings.append(f'Basement walled-off overlay not drawn ({type(_e).__name__}: {_e})')
+    if bs_synth_floor:
+        from shapely.ops import triangulate as _tri
+        _poly=interior.polygon('basement');_vs=[];_ts=[]
+        for _g in getattr(_poly,'geoms',[_poly]):
+            for _t in _tri(_g):
+                if not _g.buffer(1e-6).contains(_t.representative_point()):continue
+                _ts.append([len(_vs),len(_vs)+1,len(_vs)+2]);_vs+=[[x,y,-7.0] for x,y in list(_t.exterior.coords)[:3]]
+        if _ts:
+            _v=np.asarray(_vs,float);_fid=allocate_render_id();_tex=textures.get('bs_floor') or textures.get('floor')
+            _mat={'texture':_tex['texture'],'tint':None} if _tex else None
+            meshes.append({'id':_fid,'vertices':_v,'triangles':np.asarray(_ts),'uv':_v[:,:2]*0.175,'material':_mat,'role':'floor',**({} if _mat else {'flat_color':finish['floor'][0] if finish else [0.4,0.35,0.3]})})
+            objects[str(_fid)]={'instance_id':'bs-floor-synthetic','note':'basement floor synthesised from the sliced native outline (shared BasementFloor mesh unparseable)'}
     if room_context and floor_record is None and 'footprint' in profile:
         # Apartment has no floor mesh: synthesize the footprint rectangle (UV 0.175/m, the scale measured on the Medium floor) with the chosen flooring albedo.
         _rec=find(profile['footprint']);(x0,y0,_),(x1,y1,_)=_rec['local_min_m'],_rec['local_max_m']
@@ -368,23 +395,26 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
     # ---- ceiling light fixture mesh (hangs from the ceiling at the room centre: position inferred, not verified in the app) + lighting model
     fx_light=next((f for f in layout.get('interiorFixture',[]) if f.get('type')=='Light' and f.get('level')=='Ground Floor'),None)
     light_sources=[]
+    _spots_by_level=getattr(interior,'ceiling_lights',None) or {}
     for _lvl,_cz in (('Ground Floor',6.5),('Upper Floor',13.5),('Basement',-0.55)):
         if _lvl=='Upper Floor' and not upper_context:continue
         if _lvl=='Basement' and not basement_context:continue
         _fx=next((f for f in layout.get('interiorFixture',[]) if f.get('type')=='Light' and f.get('level')==_lvl),None)
-        if room_context and _fx is not None:
-            try:
-                from ..geometry import read_static_mesh_bounds
-                folder=source_path('materials')/'HouseAssets/CeilingLight'/''.join(_fx['name'].split())
-                lrec=read_static_mesh_bounds(folder/(folder.name+'.uexp'));lrec['item_id']=-77
-                lassets=Assets([lrec],ROOT/'outputs/render-pipeline/cache',resource_cache=_RESOURCE_CACHE);fixture_asset_loaders.append(lassets);lmesh=lassets.load(-77);lid=allocate_render_id()
-                lv=lmesh['vertices']+np.array([0.0,0.0,_cz])
-                for g in lmesh['groups']:
-                    mat=lmesh['materials'][g['material_index']] if g['material_index']>=0 else None
-                    meshes.append({'id':lid,'vertices':lv,'triangles':lmesh['triangles'][g['first_triangle']:g['first_triangle']+g['triangle_count']],'uv':lmesh['uv'],'material':mat,'role':'fixture','emissive':(0.5,0.4,0.25) if lighting else (0,0,0),**({} if mat is not None and mat.get('texture') is not None else {'flat_color':[0.8,0.7,0.5]})})
-                objects[str(lid)]={'instance_id':'ceiling-light-'+_lvl.split()[0].lower(),'name':_fx['name'],'item_id':_fx.get('itemId'),'position_note':f'hangs from ceiling z={_cz} at (0,0); position inferred'}
-                light_sources.append(_cz)
-            except Exception as error:warnings.append(f'Ceiling light mesh ({_lvl}) not drawn ({type(error).__name__}: {error})')
+        _spots=_spots_by_level.get({'Ground Floor':'ground','Upper Floor':'upper','Basement':'basement'}[_lvl]) or [(0.0,0.0,_cz)]
+        for _si,(_lx,_ly,_lz) in enumerate(_spots):
+          if room_context and _fx is not None:
+              try:
+                  from ..geometry import read_static_mesh_bounds
+                  folder=source_path('materials')/'HouseAssets/CeilingLight'/''.join(_fx['name'].split())
+                  lrec=read_static_mesh_bounds(folder/(folder.name+'.uexp'));lrec['item_id']=-77
+                  lassets=Assets([lrec],ROOT/'outputs/render-pipeline/cache',resource_cache=_RESOURCE_CACHE);fixture_asset_loaders.append(lassets);lmesh=lassets.load(-77);lid=allocate_render_id()
+                  lv=lmesh['vertices']+np.array([_lx,_ly,_lz])
+                  for g in lmesh['groups']:
+                      mat=lmesh['materials'][g['material_index']] if g['material_index']>=0 else None
+                      meshes.append({'id':lid,'vertices':lv,'triangles':lmesh['triangles'][g['first_triangle']:g['first_triangle']+g['triangle_count']],'uv':lmesh['uv'],'material':mat,'role':'ceiling_light','emissive':(0.5,0.4,0.25) if lighting else (0,0,0),**({} if mat is not None and mat.get('texture') is not None else {'flat_color':[0.8,0.7,0.5]})})
+                  objects[str(lid)]={'instance_id':'ceiling-light-'+_lvl.split()[0].lower()+(f'-{_si+1}' if _si else ''),'name':_fx['name'],'item_id':_fx.get('itemId'),'position_note':f'hangs at ({_lx:g},{_ly:g},{_lz:g}) from the profile/map ceiling-light positions; not app-verified'}
+                  light_sources.append(_lz)
+              except Exception as error:warnings.append(f'Ceiling light mesh ({_lvl}) not drawn ({type(error).__name__}: {error})')
     lighting_cfg=None
     if lighting:
         MOODS={'day':dict(lo=(.45,.44,.42),hi=(.75,.78,.85),exposure=1.3,scale=.5),'dusk':dict(lo=(.10,.09,.10),hi=(.22,.22,.28),exposure=1.25,scale=1.0),'night':dict(lo=(.04,.04,.07),hi=(.08,.09,.15),exposure=1.4,scale=1.2)}

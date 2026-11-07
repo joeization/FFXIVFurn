@@ -15,7 +15,7 @@ from ..config import source_path, catalog_path
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = catalog_path()
-INTERIOR_LIMITS = {"Medium": 450, "Apartment": 150, "Small": 300}
+INTERIOR_LIMITS = {"Medium": 450, "Apartment": 150, "Small": 300, "Large": 600}
 INTERIOR_LIMIT = 450  # legacy name: Medium cap
 TOL = 0.02
 
@@ -433,25 +433,21 @@ class Room:
     UPPER_Z = 7.0
 
     def __init__(self, style="Shirogane", house_size="Medium"):
-        from ffxiv_furniture.interiors import InteriorProfile, ApartmentProfile, SmallProfile
+        from ffxiv_furniture.interiors import InteriorProfile, ApartmentProfile, SmallProfile, LargeProfile
 
-        if house_size not in ("Medium", "Apartment", "Small"):
+        if house_size not in ("Medium", "Apartment", "Small", "Large"):
             raise DecoError(
-                "UNSUPPORTED_HOUSE", "MCP supports Medium, Small and Apartment houses only"
+                "UNSUPPORTED_HOUSE", "MCP supports Small, Medium, Large and Apartment houses"
             )
         try:
-            self.profile = {"Apartment": ApartmentProfile, "Small": SmallProfile}.get(
+            self.profile = {"Apartment": ApartmentProfile, "Small": SmallProfile, "Large": LargeProfile}.get(
                 house_size, InteriorProfile
             )(style)
         except ValueError as e:
             raise DecoError("UNSUPPORTED_INTERIOR", str(e)) from e
         self.house_size = house_size
         self.limit = INTERIOR_LIMITS[house_size]
-        self.levels = (
-            ("ground", "upper")
-            if house_size == "Medium"
-            else tuple(getattr(self.profile, "levels", ("ground",)))
-        )
+        self.levels = tuple(getattr(self.profile, "levels", ("ground",)))
         self.level_z = {"ground": 0.0, "upper": 7.0, "basement": -7.0}
         self.door_xy = getattr(self.profile, "door_xy", (0.0, 8.0))
         self.style = self.profile.style
@@ -461,7 +457,9 @@ class Room:
 
         self.basement = self.profile.polygon("basement") if "basement" in self.levels else _P()
         self.polys = {"ground": self.floor, "upper": self.upper, "basement": self.basement}
-        self.openings = self.profile.openings() if hasattr(self.profile, "openings") else []
+        _op = getattr(self.profile, "openings", None)
+        self.openings_by_level = {lv: (list(_op(lv)) if _op and lv in self.levels else []) for lv in ("ground", "upper", "basement")}
+        self.openings = self.openings_by_level["ground"]   # back-compat: ground-floor openings
         self.stairs = self.profile.stair_footprints("ground")
         self.walls_by_level = {
             level: (self._walls(self.profile.polygon(level)) if level in self.levels else [])
@@ -554,6 +552,33 @@ class Room:
                     out.append(Polygon(q[:, :2]))
             return unary_union(out) if out else None
 
+        def first_steps(w, tri, base, rise=0.6, step=0.25):
+            """Foot of a flight: cells where the stair's TOP surface seen from above is between base+0.02 and base+rise.
+            Winding-free (stair meshes are not consistently wound) and ignores enclosed boxes, undersides and trims under
+            higher flights, which a per-triangle height filter wrongly includes."""
+            P = w[tri]; A, B, Cc = P[:, 0], P[:, 1], P[:, 2]
+            d = (B[:, 1] - Cc[:, 1]) * (A[:, 0] - Cc[:, 0]) + (Cc[:, 0] - B[:, 0]) * (A[:, 1] - Cc[:, 1])
+            ok = np.abs(d) > 1e-12; dd = np.where(ok, d, 1.0)
+            x0, y0 = w[:, :2].min(0); x1, y1 = w[:, :2].max(0)
+            out = []
+            for x in np.arange(x0, x1, step):
+                for y in np.arange(y0, y1, step):
+                    cx, cy = x + step / 2, y + step / 2
+                    l1 = ((B[:, 1] - Cc[:, 1]) * (cx - Cc[:, 0]) + (Cc[:, 0] - B[:, 0]) * (cy - Cc[:, 1])) / dd
+                    l2 = ((Cc[:, 1] - A[:, 1]) * (cx - Cc[:, 0]) + (A[:, 0] - Cc[:, 0]) * (cy - Cc[:, 1])) / dd
+                    l3 = 1 - l1 - l2
+                    hit = ok & (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9)
+                    if not hit.any():
+                        continue
+                    ztop = float((l1 * A[:, 2] + l2 * B[:, 2] + l3 * Cc[:, 2])[hit].max())
+                    if base + 0.02 < ztop < base + rise:
+                        out.append(box(x, y, x + step, y + step))
+            return unary_union(out) if out else None
+
+        def well(hole):   # the stair well itself: drop the slivers that pillar notches leave in box-minus-floor
+            parts = [g for g in getattr(hole, "geoms", [hole]) if g.area > 2.0]
+            return unary_union(parts) if parts else hole
+
         info = {}
         if self.house_size == "Small":
             w2, tri2 = self._stair_world("Stairs2_9")
@@ -598,10 +623,12 @@ class Room:
                 ),
             )
             return self._stair_info
-        w, tri = self._stair_world("Stairs")
+        up_name = getattr(self.profile, "UP_STAIR", "Stairs")
+        down_name = getattr(self.profile, "DOWN_STAIR", "Stairs2_9")
+        w, tri = self._stair_world(up_name)
         zmax = float(w[:, 2].max())
         solid = cells(w, tri, lambda z: z.min() < 2.0)
-        foot = cells(w, tri, lambda z: z.max() < 1.0 and z.min() > -0.5)
+        foot = first_steps(w, tri, 0.0)   # first treads (a knee-wall cap at ~0.9 m is not a step)
         top = cells(
             w, tri, lambda z: z.min() > 6.2 and z.max() < 7.5
         )  # steps at upper-floor height (excludes side walls/handrails that rise higher)
@@ -623,9 +650,24 @@ class Room:
                 else None
             ),
         )
-        w2, tri2 = self._stair_world("Stairs2_9")
+        w2, tri2 = self._stair_world(down_name)
         down_top = cells(w2, tri2, lambda z: z.max() > -0.6)
-        hole = box(*self.floor.bounds).difference(self.floor)
+        hole = well(box(*self.floor.bounds).difference(self.floor))
+        if "basement" in self.levels:   # Medium/Large: the same basement stair facts as Small
+            bz = self.level_z["basement"]
+            bfoot = first_steps(w2, tri2, bz)
+            bus = self.under_stair(down_name, bz, self.basement)
+            bsolid = bus["blocked"]
+            info["basement"] = dict(
+                solid=bsolid.buffer(0.02) if bsolid is not None else None,
+                foot=bfoot,
+                foot_access=(
+                    bfoot.buffer(self.ACCESS_M).difference(bsolid).intersection(self.basement)
+                    if bfoot is not None and bsolid is not None
+                    else (bfoot.buffer(self.ACCESS_M).intersection(self.basement) if bfoot is not None else None)
+                ),
+                under=bus,
+            )
         info["down"] = dict(
             top=down_top,
             entry_access=(
@@ -787,7 +829,7 @@ class Room:
 
         s = self.stair_info()
         u, d = s["up"], s["down"]
-        return dict(
+        out = dict(
             up=dict(
                 foot_xy_bounds=b(u["foot"]),
                 foot_access_xy_bounds=b(u["foot_access"]),
@@ -804,6 +846,19 @@ class Room:
                 note="basement stair; hiding it behind walls is a legitimate design",
             ),
         )
+        if "basement" in s:
+            bs = s["basement"]; ub = bs["under"]
+            ar = lambda g: round(g.area, 1) if g is not None and not g.is_empty else 0.0
+            out["basement"] = dict(
+                stair_solid_xy_bounds=b(bs["solid"]),
+                stair_foot_xy_bounds=b(bs["foot"]),
+                stair_foot_access_xy_bounds=b(bs["foot_access"]),
+                floor_z=self.level_z["basement"],
+                under_stair=dict(projection_m2=ar(ub.get("projection")), enclosed_m2=ar(ub["enclosed"]), usable_ge_1p9m_m2=ar(ub["usable"]),
+                                 usable_xy_bounds=b(ub["usable"])),
+                note=f"basement floor is z={self.level_z['basement']:g}; arrival = stair_foot; keep stair_foot_access walkable",
+            )
+        return out
 
     def level_of(self, z):
         return "basement" if z <= -3.0 else ("upper" if z >= self.UPPER_Z - 1.0 else "ground")
@@ -827,13 +882,17 @@ class Room:
                 )
             )
             return self._clear
-        if self.house_size != "Medium":
+        if self.house_size not in ("Medium", "Large"):
             return {}
         import numpy as np
         from ffxiv_furniture.geometry_mesh import read_static_mesh_triangles
 
         out = {}
-        for name, label in (("Stairs", "up"), ("Stairs2_9", "down")):
+        if "basement" in self.levels:
+            ub = self.stair_info()["basement"]["under"]
+            out["basement"] = dict(cell_m=ub["cell_m"], cells=ub["cells"],
+                                   note="cell = [x_min, y_min, usable_clearance_m, enclosed]; enclosed (boxed underside) => 0, no space")
+        for name, label in ((getattr(self.profile, "UP_STAIR", "Stairs"), "up"), (getattr(self.profile, "DOWN_STAIR", "Stairs2_9"), "down")):
             w, tri = self._stair_world(name)
             P = w[tri]
             x0, y0, x1, y1 = P[:, :, 0].min(), P[:, :, 1].min(), P[:, :, 0].max(), P[:, :, 1].max()
@@ -1116,7 +1175,7 @@ class Session:
     strict = False
 
     # ceiling heights the renderer hangs the per-level Light fixture from (pipeline.py), centred at (0,0)
-    _CEILING_Z = {"ground": ("Light", "Ground Floor", 6.5), "upper": ("Upper:Light", "Upper Floor", 13.5)}
+    _CEILING_Z = {"ground": ("Light", "Ground Floor", 6.5), "upper": ("Upper:Light", "Upper Floor", 13.5), "basement": ("Basement:Light", "Basement", -0.55)}
     _light_bounds_cache = {}
 
     def _ceiling_light_disc(self, level):
@@ -1142,7 +1201,11 @@ class Session:
             except Exception:
                 self._light_bounds_cache[name] = None
         b = self._light_bounds_cache[name]
-        return None if b is None else (b[0], cz + b[1], name)
+        if b is None:
+            return None
+        # where the renderer hangs this level's light(s): profile positions (Large has several per floor), else the room centre
+        spots = (getattr(self.room.profile, "ceiling_lights", {}) or {}).get(level) or [(0.0, 0.0, cz)]
+        return (b[0], min(z for _, _, z in spots) + b[1], name, [(x, y) for x, y, _ in spots])
 
     def validate(self, inst, issues, op_index=None):
         if self.instances_view is None:
@@ -1158,12 +1221,12 @@ class Session:
             return
         _zb = inst["pivot"][2] + it["lo"][2]
         _lv = self.room.level_of(_zb)
-        if _lv == "ground" and self.room.openings:
+        if self.room.openings_by_level.get(_lv):
             from shapely.geometry import box as _box
 
             _bw = self.bounds_world(inst)
             _thin = it["ptype"] == "wall" or (it["hi"][1] - it["lo"][1]) < 0.35
-            for _o in self.room.openings:
+            for _o in self.room.openings_by_level[_lv]:
                 _x, _y = _o["xy"]
                 _h = _o["half_width"]
                 _d = 0.35 if _thin else 0.8
@@ -1196,13 +1259,15 @@ class Session:
         if _disc is not None:
             from shapely.geometry import Point as _Pt
 
-            _r, _bottom, _name = _disc
+            _r, _bottom, _name, _spots = _disc
             _top = inst["pivot"][2] + it["hi"][2]
-            if _top > _bottom - 0.05 and fp.intersection(_Pt(0.0, 0.0).buffer(_r)).area > 0.01:
-                add(
-                    "CEILING_LIGHT_CONFLICT",
-                    f"{it['name']} reaches z {_top:.2f} inside the {_name} ceiling light (hangs at the room centre (0,0), radius {_r:.2f} m, down to z {_bottom:.2f}); move it at least {_r:.1f} m off the centre or lower it",
-                )
+            for _sx, _sy in _spots:
+                if _top > _bottom - 0.05 and fp.intersection(_Pt(_sx, _sy).buffer(_r)).area > 0.01:
+                    add(
+                        "CEILING_LIGHT_CONFLICT",
+                        f"{it['name']} reaches z {_top:.2f} inside the {_name} ceiling light (hangs at ({_sx:g},{_sy:g}), radius {_r:.2f} m, down to z {_bottom:.2f}); move it at least {_r:.1f} m away or lower it",
+                    )
+                    break
         _lift = _zb - (getattr(self.room, "UPPER_Z", 7.0) if _lv == "upper" else (-7.0 if _lv == "basement" else 0.0))   # height above this level's floor
         if it["ptype"] == "wall" or (
             it["ptype"] == "floor"
@@ -1802,7 +1867,10 @@ class Session:
             floor_polygon=[
                 [round(x, 3), round(y, 3)] for x, y in self.room.polys[level].exterior.coords
             ],
-            openings=self.room.openings,
+            floor_holes=[   # e.g. the house footprint inside a yard; walkable area = polygon minus holes
+                [[round(x, 3), round(y, 3)] for x, y in h.coords] for h in getattr(self.room.polys[level], "interiors", [])
+            ],
+            openings=self.room.openings_by_level.get(level, []),
             stair_footprints=[
                 [[round(x, 2), round(y, 2)] for x, y in s.exterior.coords]
                 for s in self.room.profile.stair_footprints(level)

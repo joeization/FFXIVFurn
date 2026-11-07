@@ -54,6 +54,9 @@ class ExteriorProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             session=ExteriorSession('test',cat,ExteriorRoom('Small'),tmp,seed_layout=lay,max_patch=7.2)
             session.apply([dict(op='place',item_id=6475,position=[6,5,0])])
+            self.assertEqual(session.inspect()['openings'],[])   # yard inspect works (no interior windows outdoors)
+            ins=session.inspect()
+            if session.room.floor.interiors: self.assertEqual(len(ins['floor_holes']),len(session.room.floor.interiors))   # the house is a hole in the yard
             snap=session.snapshot('before roof')
             session.apply([dict(op='fixture',type='Roof',name='Glade Cottage Roof (Wood)')])
             self.assertTrue(any(f['name']=='Glade Cottage Roof (Wood)' for f in session.layout_dict()['exteriorFixture']))

@@ -241,6 +241,13 @@ class AnalyzeTest(unittest.TestCase):
                            P(B, [-5.9, -2.0, 0], 0, instance_id='bridge')])   # third wall laps over the 0.2 m slit
         self.assertEqual([g for g in analyze(s)['wall_gaps'] if {g['a'], g['b']} == {'w1', 'w2'}], [])
 
+    def test_wall_gaps_ignore_a_slit_closed_by_a_full_height_furniture_pillar(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        B = 'Blank Minimalist Partition'
+        s = mk(); s.apply([P(B, [-8.0, -2.6, 0], 0, instance_id='w1'), P(B, [-3.8, -2.6, 0], 0, instance_id='w2'),
+                           P('Simple Hingan Pillar', [-5.9, -2.6, 0], 0, instance_id='post')])   # a post stands in the 0.2 m slit
+        self.assertEqual([g for g in analyze(s)['wall_gaps'] if {g['a'], g['b']} == {'w1', 'w2'}], [])
+
     def test_raised_platform_is_walkable_but_a_table_is_not(self):
         from ffxiv_furniture.deco.analyze import analyze, check_routes, is_platform
         s = mk()

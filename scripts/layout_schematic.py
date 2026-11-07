@@ -405,8 +405,8 @@ def main() -> None:
 
         # Doors and windows from the selected interior profile (ground floor only for Small).
         placed: list[tuple[float, float, float, float]] = []
-        if level == "ground":
-            for opening in room.openings:
+        if True:
+            for opening in getattr(room, "openings_by_level", {}).get(level, room.openings if level == "ground" else []):
                 ox, oy = opening["xy"]
                 along = opening.get("along", "x")
                 hw = opening["half_width"]

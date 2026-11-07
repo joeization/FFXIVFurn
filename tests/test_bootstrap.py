@@ -210,7 +210,9 @@ class BootstrapTests(unittest.TestCase):
             for k, v in self.sources.items()
         }
         config.write_text(json.dumps(relative), encoding="utf-8")
-        self.assertEqual(load_sources(config), self.sources)
+        # compare resolved paths: Windows can report the same temp dir in 8.3 short form (JOEIZA~1) or long form
+        norm = lambda d: {k: ([str(Path(v[0]).resolve())] if isinstance(v, list) else str(Path(v).resolve())) for k, v in d.items()}
+        self.assertEqual(norm(load_sources(config)), norm(self.sources))
 
     def test_duplicate_asset_identity_does_not_pick_arbitrary_mesh(self):
         folder = Path(self.sources["furniture_roots"][0]) / "GameAssets/Other/TestChair"

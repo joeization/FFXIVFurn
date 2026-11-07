@@ -80,7 +80,7 @@ Missing data or schema produces a nonzero exit status. The command does not manu
 
 Once data is ready, configure a session and seed using the [MCP guide](docs/mcp.md). Keep one persistent connection per design, with separate names for interior and yard sessions. Registration in a particular agent application is not required.
 
-- Interiors: Small (ground floor and basement), Medium (ground and upper floors), Apartment (single floor). Large interior MCP is unsupported; Medium basements are not fully supported.
+- Interiors: Small (ground floor and basement), Medium and Large (ground, upper floor and basement), Apartment (single floor). Medium basement and Large geometry come from native meshes and map actors and are not app-verified.
 - Yards: S/M/L; outdoor furniture, exterior walls, roofs, fences, doors/windows, roof/wall decorations, and placards. Select styles with `search_materials`/`set_exterior`.
 - Start with `status`/`inspect`. After editing, render and inspect the image before continuing. Numerical diagnostics are not aesthetic scores or proof of game collision behavior.
 - Normal renders save only JPEGs in one `renders/` directory, with revisions distinguished by filename; only the newest two revisions are kept (`keep=true` files are never pruned) and `render_sheet` writes just the composite. JSON diagnostics require explicit opt-in. Session state, snapshots, and exports are unaffected.

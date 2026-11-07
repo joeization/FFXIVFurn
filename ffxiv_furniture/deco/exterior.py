@@ -103,6 +103,7 @@ class ExteriorRoom:
         self.basement = Polygon()
         self.polys = {"ground": self.floor}
         self.openings = []
+        self.openings_by_level = {"ground": [], "upper": [], "basement": []}
         self.stairs = []
         self.pillars_by_level = {"ground": []}
         self.walls = Room._walls(self.floor)

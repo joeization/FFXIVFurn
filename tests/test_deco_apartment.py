@@ -22,7 +22,7 @@ class ApartmentTests(unittest.TestCase):
 
     def test_unsupported_combinations(self):
         with self.assertRaises(DecoError): Room('Minimalist', 'Apartment')    # only the calibrated enclosure
-        with self.assertRaises(DecoError): Room('Shirogane', 'Large')
+        with self.assertRaises(DecoError): Room('Shirogane', 'PrivateRoom')   # Large is supported now; private rooms are not
         with self.assertRaises(DecoError): Session('x', Catalog(), Room('Shirogane', 'Medium'), tempfile.mkdtemp(), seed_layout=SEED)   # seed/room mismatch
 
     def test_status_limit_levels_and_walls(self):
@@ -102,7 +102,8 @@ class SmallTests(unittest.TestCase):
         from ffxiv_furniture.deco.analyze import analyze
         seed = json.loads((ROOT / 'data/seeds/small-seed.json').read_bytes())
         s = Session('sb', Catalog(), Room('Minimalist', 'Small'), tempfile.mkdtemp(), seed_layout=seed)
-        self.assertEqual(len(s.inspect(level='basement')['openings']), 5)
+        self.assertEqual(len(s.inspect(level='ground')['openings']), 5)        # 4 windows + door
+        self.assertEqual(s.inspect(level='basement')['openings'], [])          # the basement has no windows
         w = s.apply([dict(op='place', instance_id='f', name='Grade 3 Picture Frame', position=[-5.95, 0.0, 2.6], yaw_deg=270, anchor='pivot')])['warnings']
         self.assertIn('WINDOW_OVERLAP', {x['code'] for x in w})
         w = s.apply([P('Glade Table', [8.0, 8.0, -7.0], instance_id='blk')])['warnings']

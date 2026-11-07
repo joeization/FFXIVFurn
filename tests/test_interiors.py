@@ -93,7 +93,8 @@ class InteriorTests(unittest.TestCase):
         w=next(w for w in info['walls'] if w['length']>8)
         s.apply([dict(op='place_along_wall',name='Oriental Wall Scroll',instance_id='scroll',level='upper',wall_id=w['wall_id'],along_m=w['length']/2,height_m=2)])
         self.assertEqual(s.instances['scroll']['pivot'][2],9)
-        with self.assertRaises(DecoError):s.inspect(level='basement')
+        self.assertEqual(s.inspect(level='basement')['level'],'basement')   # Medium basement is a real level now
+        with self.assertRaises(DecoError):s.inspect(level='attic')
 
     def test_legacy_state_without_style_uses_original_seed(self):
         s=self.session();raw=json.loads((s.dir/'state.json').read_text());raw['state'].pop('style')

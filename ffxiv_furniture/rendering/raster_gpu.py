@@ -157,7 +157,7 @@ def render_gpu(meshes, camera, path, *, size=(960, 640), near=.1, approximate_ti
         if m['texture'] is not None: m['texture'].use(0); prog['tex'].value = 0
         m['vao'].render(moderngl.TRIANGLES)
     for index, mesh in enumerate(meshes):
-        if camera.get('cutaway') and mesh.get('role') in ('enclosure', 'upper_enclosure'): continue
+        if camera.get('cutaway') and mesh.get('role') in ('enclosure', 'upper_enclosure', 'ceiling_light', 'window'): continue   # plans: no shell, no pendants, no wall windows
         if mesh.get('role') == 'void' and not camera.get('cutaway'): continue   # walled-off floor marker: plan cutaways only
         ha = camera.get('hide_above_z'); hb = camera.get('hide_below_z')
         if ha is not None or hb is not None:

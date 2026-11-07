@@ -10,7 +10,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from PIL import Image
-from test_classification import MockClient, answer, raw
+try:
+    from tests.test_classification import MockClient, answer, raw   # run from the repo root
+except ImportError:
+    from test_classification import MockClient, answer, raw         # run from inside tests/
 from ffxiv_furniture.classification.manifest import prepare
 from ffxiv_furniture.classification.sampling import sample
 from ffxiv_furniture.classification.runner import classify
