@@ -1,13 +1,18 @@
 """Read-only layout diagnostics (facts, never pass/fail, never block an edit): reachability + front clearance, seat/table orientation, wall alignment, left/centre/right balance.
 FFXIV allows overlap and tight placements, so every number is a hint for the designer (human or model)."""
 from __future__ import annotations
+import json
 import math
 from collections import deque
 import numpy as np
-from shapely import affinity, prepared
-from shapely.geometry import Point, Polygon, box
-from shapely.ops import unary_union
-from .core import DecoError
+import shapely
+from shapely import affinity
+from shapely.geometry import LineString, Point, Polygon, box
+from shapely.ops import nearest_points, unary_union
+from shapely.strtree import STRtree
+from ffxiv_furniture.geometry_mesh import read_static_mesh_triangles
+from ffxiv_furniture.interiors import level_for_span
+from .core import DecoError, _rot
 
 SEAT = ('chair', 'stool', 'sofa', 'armchair', 'bench', 'seat', 'cushion')
 STEP = 0.25
@@ -24,8 +29,6 @@ def _mesh_openings(cat, item_id, z_band=(0.3, 2.0), min_width=0.6, step=0.05):
     if item_id in _OPENINGS: return _OPENINGS[item_id]
     out = None
     try:
-        import json
-        from ffxiv_furniture.geometry_mesh import read_static_mesh_triangles
         row = cat.db.execute('SELECT evidence FROM asset_geometry WHERE item_id=?', (item_id,)).fetchone()
         if row is not None:
             v, t = read_static_mesh_triangles(json.loads(row[0]))[:2]
@@ -107,48 +110,76 @@ def _erode(m, r):
     return out
 
 
-def _stair_solids(room):
-    """Walking-height obstacle of the up stair from the native mesh (Room.stair_info)."""
-    s = room.stair_info()['up']['solid']
+def _stair_solids(room, level):
+    """Walking-height stair obstacle on this level from the native mesh (Room.stair_info): the up stair on the ground floor, the basement stair below."""
+    key = {'ground': 'up', 'basement': 'basement'}.get(level)
+    s = (room.stair_info().get(key) or {}).get('solid') if key else None
     return [s] if s is not None else []
 
 
+def _coords(g): return g.exterior.coords if hasattr(g, 'exterior') else g.coords
+
+
+def _wall_reach(ga, wall, pa, pb):
+    """The stretch of room wall facing partition ga: the wall clipped to the partition's own extent along the slit, so the slit is as long as
+    the partition is (not flared by a wider wall chunk and not judged by pieces beside it)."""
+    dx, dy = pb.x - pa.x, pb.y - pa.y; n = math.hypot(dx, dy)
+    dx, dy = dx / n, dy / n; ux, uy = -dy, dx   # (ux, uy) runs along the slit, (dx, dy) across it
+    ss = [ux * x + uy * y for x, y in _coords(ga)]; t0 = dx * pb.x + dy * pb.y
+    strip = Polygon([(ux * s + dx * t, uy * s + dy * t) for s, t in ((min(ss), t0 - 1.0), (max(ss), t0 - 1.0), (max(ss), t0 + 1.0), (min(ss), t0 + 1.0))])
+    return wall.buffer(0.01).intersection(strip)
+
 
 def _slit_open(ga, gb, pa, pb, others):
-    """True if the slit between ga and gb stays open across its whole depth after removing every other solid."""
-    import math
+    """The slit centroid if the slit between ga and gb stays open across its whole depth after removing every other solid, else None."""
     dx, dy = pb.x - pa.x, pb.y - pa.y; n = math.hypot(dx, dy)
-    if n < 1e-9: return False
+    if n < 1e-9: return None
     ux, uy = -dy / n, dx / n   # depth axis: perpendicular to the gap direction
     slit = unary_union([ga, gb]).convex_hull.difference(ga.buffer(0.005)).difference(gb.buffer(0.005))
-    if slit.is_empty: return False
+    if slit.is_empty: return None
     def extent(g):
-        xs = [ux * x + uy * y for x, y in (g.exterior.coords if hasattr(g, 'exterior') else g.coords)]
+        xs = [ux * x + uy * y for x, y in _coords(g)]
         return max(xs) - min(xs)
     full = max((extent(g) for g in getattr(slit, 'geoms', [slit]) if g.area > 1e-4), default=0.0)
-    if full <= 0: return False
+    if full <= 0: return None
     rest = slit.difference(unary_union([g.buffer(0.03) for g in others])) if others else slit
-    return any(g.area > 1e-4 and extent(g) >= 0.95 * full for g in getattr(rest, 'geoms', [rest]))
+    if not any(g.area > 1e-4 and extent(g) >= 0.95 * full for g in getattr(rest, 'geoms', [rest])): return None
+    return slit.centroid
+
+
+def _finite_number(v): return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _positive(v, name):
+    if not _finite_number(v) or v <= 0: raise DecoError('BAD_INPUT', f'{name} must be a finite number > 0')
+    return float(v)
+
 
 def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
-    room = sess.room; cat = sess.cat; z0 = room.level_z.get(level, 0.0); z1 = z0 + 7.0
+    room = sess.room; cat = sess.cat
     if level not in room.levels: raise DecoError('BAD_INPUT', f'level must be one of {list(room.levels)} for a {room.house_size}')
+    if start is not None:
+        if not isinstance(start, (list, tuple)) or len(start) != 2 or not all(_finite_number(v) for v in start):
+            raise DecoError('BAD_INPUT', 'start must be [x, y]: two finite numbers')
+        start = (float(start[0]), float(start[1]))
+    path_width = _positive(path_width, 'path_width_m'); front_depth = _positive(front_depth, 'front_depth_m')
+    z0 = room.level_z.get(level, 0.0)
     floor = room.polys[level]
     items = []
     for inst in sess.instances.values():
-        it = cat.item(inst['item_id']); zb = inst['pivot'][2] + it['lo'][2]
-        if not (z0 - 0.5 <= zb < z1 - 0.5): continue
-        items.append((inst, it, sess.footprint(inst), zb - z0, zb - z0 + (it['hi'][2] - it['lo'][2])))   # heights are relative to this level's floor
+        it = cat.item(inst['item_id']); zb = inst['pivot'][2] + it['lo'][2]; h = it['hi'][2] - it['lo'][2]
+        if level_for_span(zb, zb + h) != level: continue
+        items.append((inst, it, sess.footprint(inst), zb - z0, zb - z0 + h))   # heights are relative to this level's floor
+    low = {inst['id']: inst['name'].lower() for inst, *_ in items}   # lowercase names once
+    seats = {i for i, n in low.items() if any(k in n for k in SEAT)}; struct = {i for i, n in low.items() if any(k in n for k in STRUCT)}
     minx, miny, maxx, maxy = floor.bounds; nx, ny = int((maxx - minx) / STEP) + 1, int((maxy - miny) / STEP) + 1
     xs = minx + (np.arange(nx) + .5) * STEP; ys = miny + (np.arange(ny) + .5) * STEP
-    pf = prepared.prep(floor); walk = np.array([[pf.contains(Point(x, y)) for x in xs] for y in ys])
+    gx, gy = np.meshgrid(xs, ys); walk = shapely.contains_xy(floor, gx, gy)
     solid = [_solid_fp(inst, fp, cat, it) for inst, it, fp, zb, zt in items if it['ptype'] not in ('rug', 'wall') and zt - zb >= 0.4 and zb <= 1.4 and not is_platform(it)]
-    if level == 'ground': solid += _stair_solids(room)
-    if level == 'basement' and room.stair_info().get('basement', {}).get('solid') is not None: solid.append(room.stair_info()['basement']['solid'])
+    solid += _stair_solids(room, level)
     solid += list(room.pillars_by_level.get(level, []))   # structural pillars block walking
     blocked = np.zeros_like(walk)
-    if solid:
-        pu = prepared.prep(unary_union(solid)); blocked = np.array([[bool(walk[j, i]) and pu.contains(Point(x, y)) for i, x in enumerate(xs)] for j, y in enumerate(ys)])
+    if solid: blocked = walk & shapely.contains_xy(unary_union(solid), gx, gy)
     free = walk & ~blocked
     def cell(x, y): return (min(max(int((y - miny) / STEP), 0), ny - 1), min(max(int((x - minx) / STEP), 0), nx - 1))
     if start is None and level == 'basement':
@@ -172,31 +203,33 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
                     jj, ii = np.where(comp); unreachable.append(dict(area_m2=round(a, 1), centre=[round(float(xs[ii].mean()), 1), round(float(ys[jj].mean()), 1)], reachable_at_zero_width=bool(reach_any[comp].any())))
     no_access = []
     for inst, it, fp, zb, zt in items:
-        if it['ptype'] in ('rug', 'wall') or zb > 0.3 or is_platform(it) or any(k in inst['name'].lower() for k in STRUCT): continue   # things resting on tables/shelves are reached via their support
+        if it['ptype'] in ('rug', 'wall') or zb > 0.3 or is_platform(it) or inst['id'] in struct: continue   # things resting on tables/shelves are reached via their support
         cs = [cell(x, y) for x, y in list(fp.buffer(0.5).exterior.coords)[::3]]
         if not any(near[a, b] for a, b in cs): no_access.append(dict(instance_id=inst['id'], name=inst['name']))
     # tables first: a seat's own accompanying table never counts as blocking its front (tucked-in chairs are normal)
-    tables = [(i, fp) for i, it, fp, zb, zt in items if it['supports_top'] and 0.45 < zt - zb < 1.3 and it['ptype'] == 'floor' and not any(k in i['name'].lower() for k in SEAT)]
+    tables = [(i, fp) for i, it, fp, zb, zt in items if it['supports_top'] and 0.45 < zt - zb < 1.3 and it['ptype'] == 'floor' and i['id'] not in seats]
     # front clearance of seats / tall storage
     front = []; obstacles = [(o[0]['id'], o[2]) for o in items if o[1]['ptype'] not in ('rug', 'wall') and o[4] - o[3] > 0.3 and o[3] < 1.4 and not is_platform(o[1])]
+    obs_tree = STRtree([g for _, g in obstacles])
     for inst, it, fp, zb, zt in items:
         if it['ptype'] != 'floor' or zb > 1.0: continue
-        is_seat = any(k in inst['name'].lower() for k in SEAT)
-        if any(k in inst['name'].lower() for k in STRUCT): continue
+        is_seat = inst['id'] in seats
+        if inst['id'] in struct: continue
         if not (is_seat or 1.5 < zt - zb < 4.5): continue
         v = sess.view(inst); fa = math.radians(v['facing_deg']); b = fp.bounds; w = max(0.5, min(b[2] - b[0], b[3] - b[1], 3.0)); ext = max(b[2] - b[0], b[3] - b[1]) / 2
         c = fp.centroid; cx, cy = c.x + math.cos(fa) * (ext * 0.5 + front_depth / 2 + 0.2), c.y + math.sin(fa) * (ext * 0.5 + front_depth / 2 + 0.2)
         rect = affinity.rotate(box(cx - w / 2, cy - front_depth / 2, cx + w / 2, cy + front_depth / 2), math.degrees(fa), origin=(cx, cy))
-        others = [g for i, g in obstacles if i != inst['id']]
+        skip = {inst['id']}
         if is_seat and tables:
             ti, tfp = min(tables, key=lambda t: t[1].distance(fp))
-            if tfp.distance(fp) <= 1.6: others = [g for i, g in obstacles if i not in (ti['id'], inst['id'])]
+            if tfp.distance(fp) <= 1.6: skip.add(ti['id'])
+        others = [obstacles[k][1] for k in sorted(obs_tree.query(rect, predicate='intersects')) if obstacles[k][0] not in skip]   # only what touches the front rectangle
         blk = unary_union(others).intersection(rect).area if others else 0.0; out = rect.difference(floor).area
         if min(1.0, (blk + out) / rect.area) > 0.3: front.append(dict(instance_id=inst['id'], name=inst['name'], facing_deg=v['facing_deg'], front_blocked_fraction=round(min(1.0, (blk + out) / rect.area), 2), wall_or_edge_part=round(out / rect.area, 2)))
     # seat -> nearest table facing error
     orient = []
     for inst, it, fp, zb, zt in items:
-        if not tables or it['ptype'] != 'floor' or zt - zb > 1.8 or not any(k in inst['name'].lower() for k in SEAT): continue
+        if not tables or it['ptype'] != 'floor' or zt - zb > 1.8 or inst['id'] not in seats: continue
         ti, tfp = min(tables, key=lambda t: t[1].distance(fp)); d = tfp.distance(fp)
         if d > 1.6: continue
         c, tc = fp.centroid, tfp.centroid; want = math.degrees(math.atan2(tc.y - c.y, tc.x - c.x)) % 360
@@ -205,7 +238,7 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
     # wall alignment of tall pieces
     tall = []
     for inst, it, fp, zb, zt in items:
-        if it['ptype'] != 'floor' or zt - zb < 1.8 or zb > 0.5 or any(k in inst['name'].lower() for k in ('partition', 'pillar')): continue
+        if it['ptype'] != 'floor' or zt - zb < 1.8 or zb > 0.5 or 'partition' in low[inst['id']] or 'pillar' in low[inst['id']]: continue
         yaw = inst['yaw'] % 90; tall.append(dict(instance_id=inst['id'], name=inst['name'], gap_to_wall_m=round(float(fp.distance(floor.boundary)), 2), off_axis_deg=round(min(yaw, 90 - yaw), 1)))
     # balance
     allfp = [fp for inst, it, fp, zb, zt in items if it['ptype'] != 'wall' and zt - zb > 0.3 and zb < 1.4]; cov = unary_union(allfp) if allfp else None; thirds = []
@@ -213,14 +246,14 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
         band = box(minx + (maxx - minx) * k / 3, -100, minx + (maxx - minx) * (k + 1) / 3, 100).intersection(floor)
         thirds.append(dict(region=('west', 'centre', 'east')[k], floor_m2=round(band.area, 1), covered_fraction=round(cov.intersection(band).area / band.area, 2) if cov is not None and band.area else 0.0))
     # enclosures: floor split by full-height partitions (door partitions counted as solid) + pillars; a room fully closed by them shows up as its own piece.
-    walls = [sess.footprint(inst) for inst, it, fp, zb, zt in items if 'partition' in inst['name'].lower() and zt - zb >= 3.0]
+    walls = [fp for inst, it, fp, zb, zt in items if 'partition' in low[inst['id']] and zt - zb >= 3.0]
     enclosures = []
     if walls:
         cut = floor.difference(unary_union(walls + list(room.pillars_by_level.get(level, []))).buffer(0.03))
         pieces = sorted([g for g in getattr(cut, 'geoms', [cut]) if g.area > 1.0], key=lambda g: -g.area)
         for g in pieces[1:]:
-            doors = [inst['id'] for inst, it, fp, zb, zt in items if 'partition' in inst['name'].lower() and fp.buffer(0.1).intersects(g)
-                     and ('door' in inst['name'].lower() or not _solid_fp(inst, fp, cat, it).equals(fp))]   # named doors or a measured walkable opening
+            doors = [inst['id'] for inst, it, fp, zb, zt in items if 'partition' in low[inst['id']] and fp.buffer(0.1).intersects(g)
+                     and ('door' in low[inst['id']] or not _solid_fp(inst, fp, cat, it).equals(fp))]   # named doors or a measured walkable opening
             enclosures.append(dict(area_m2=round(g.area, 1), bounds=[round(v, 2) for v in g.bounds], door_partitions=doors, note='closed by partitions/pillars/walls' + ('' if doors else '; NO door partition touches it')))
     # raised items with nothing under them (floating is legal in FFXIV; this only lists it so it is a choice, not an accident)
     unsupported = []
@@ -232,30 +265,27 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
             if not oit['surfaces'] and abs(zb - ozt) <= 0.12: ok = True; break   # unmeasured furniture: its top
             for s in oit['surfaces']:
                 if abs(zb - (o['pivot'][2] - z0 + s['z'])) > 0.06: continue
-                from shapely.geometry import Polygon as _Poly
-                from .core import _rot
-                pts = [(o['pivot'][0] + _rot(x, y, o['yaw'])[0], o['pivot'][1] + _rot(x, y, o['yaw'])[1]) for x, y in ((s['min'][0], s['min'][1]), (s['max'][0], s['min'][1]), (s['max'][0], s['max'][1]), (s['min'][0], s['max'][1]))]
-                if _Poly(pts).buffer(0.03).contains(c): ok = True; break
+                rot = [_rot(x, y, o['yaw']) for x, y in ((s['min'][0], s['min'][1]), (s['max'][0], s['min'][1]), (s['max'][0], s['max'][1]), (s['min'][0], s['max'][1]))]
+                if Polygon([(o['pivot'][0] + rx, o['pivot'][1] + ry) for rx, ry in rot]).buffer(0.03).contains(c): ok = True; break
             if ok: break
         if not ok: unsupported.append(dict(instance_id=inst['id'], name=inst['name'], bottom_above_floor_m=round(zb, 2)))
     # furniture-vs-furniture overlaps: legal in FFXIV but almost always a design accident (the user's "家具疊在一起"); reported for every pair, stacked placements excluded
     overlaps = []
-    hard = [(inst, fp, zb, zt) for inst, it, fp, zb, zt in items if it['ptype'] not in ('rug', 'wall', 'ceiling') and zt - zb >= 0.3 and zb < 1.4 and not any(k in inst['name'].lower() for k in STRUCT)]
-    for _i in range(len(hard)):
-        for _j in range(_i + 1, len(hard)):
-            a, b = hard[_i], hard[_j]
-            if a[2] >= b[3] - 0.12 or b[2] >= a[3] - 0.12: continue   # one rests on top of the other: legal stacking
-            area = a[1].intersection(b[1]).area
-            if area > 0.05: overlaps.append(dict(a=a[0]['id'], a_name=a[0]['name'], b=b[0]['id'], b_name=b[0]['name'], overlap_m2=round(area, 2)))
+    hard = [(inst, fp, zb, zt) for inst, it, fp, zb, zt in items if it['ptype'] not in ('rug', 'wall', 'ceiling') and zt - zb >= 0.3 and zb < 1.4 and inst['id'] not in struct]
+    hq, ht = STRtree([h[1] for h in hard]).query(np.asarray([h[1] for h in hard], dtype=object), predicate='intersects')   # an empty list otherwise becomes a float array
+    for _i, _j in sorted({(int(u), int(v)) for u, v in zip(hq, ht) if u < v}):
+        a, b = hard[_i], hard[_j]
+        if a[2] >= b[3] - 0.12 or b[2] >= a[3] - 0.12: continue   # one rests on top of the other: legal stacking
+        area = a[1].intersection(b[1]).area
+        if area > 0.05: overlaps.append(dict(a=a[0]['id'], a_name=a[0]['name'], b=b[0]['id'], b_name=b[0]['name'], overlap_m2=round(area, 2)))
     overlaps.sort(key=lambda d: -d['overlap_m2'])
     # wall_gaps: narrow slits between full-height partitions / pillars / the room wall. Too narrow to walk (<0.6 m) but wide enough
     # (>3 cm) to leak an enclosure, so a room that should be sealed silently is not. Reported with the gap centre so it can be closed.
     wall_gaps = []
-    seal = [(inst['id'], sess.footprint(inst)) for inst, it, fp, zb, zt in items
-            if any(k in inst['name'].lower() for k in ('partition', 'pillar')) and zt - zb >= 3.0]   # full-height furniture posts seal too
+    seal = [(inst['id'], fp) for inst, it, fp, zb, zt in items
+            if ('partition' in low[inst['id']] or 'pillar' in low[inst['id']]) and zt - zb >= 3.0]   # full-height furniture posts seal too
     seal_ids = {sid: k for k, (sid, _) in enumerate(seal)}
     others = seal + [(f'pillar-{k}', g) for k, g in enumerate(room.pillars_by_level.get(level, []))] + [('room-wall', floor.exterior)]
-    from shapely.ops import nearest_points
     inner = floor.buffer(-0.05)
     for i, (ida, ga) in enumerate(seal):
         for idb, gb in others:
@@ -265,17 +295,17 @@ def analyze(sess, level='ground', start=None, path_width=0.8, front_depth=0.6):
                 pa, pb = nearest_points(ga, gb)
                 mid = Point((pa.x + pb.x) / 2, (pa.y + pb.y) / 2)
                 if not inner.contains(mid): continue   # slit runs along the room wall the partition already meets
-                if not _slit_open(ga, gb if idb != 'room-wall' else gb.buffer(0.01).intersection(pb.buffer(1.5)), pa, pb,
-                                  [g for gid, g in others[:-1] if gid not in (ida, idb)]): continue   # bridged by a third piece
-                wall_gaps.append(dict(a=ida, b=idb, width_m=round(dist, 2), at=[round((pa.x + pb.x) / 2, 2), round((pa.y + pb.y) / 2, 2)]))
+                c = _slit_open(ga, gb if idb != 'room-wall' else _wall_reach(ga, gb, pa, pb), pa, pb,
+                               [g for gid, g in others[:-1] if gid not in (ida, idb)])   # None: bridged by a third piece
+                if c is None: continue
+                wall_gaps.append(dict(a=ida, b=idb, width_m=round(dist, 2), at=[round(c.x, 2), round(c.y, 2)]))
     wall_gaps.sort(key=lambda g: g['width_m'])
     # entrance_tall: pieces >= 2 m tall within 1.5 m of the arrival lane (3 m wide, 4 m deep from the main door toward the room
     # centre). They read as crowding on arrival even when the lane itself is clear. Interior ground floor only.
     entrance_tall = []
     if level == 'ground' and getattr(cat, 'scope', 'interior') == 'interior' and getattr(room, 'door_xy', None):
-        import math as _m
         dx, dy = room.door_xy; c = floor.centroid
-        ux, uy = c.x - dx, c.y - dy; n = _m.hypot(ux, uy) or 1.0; ux, uy = ux / n, uy / n
+        ux, uy = c.x - dx, c.y - dy; n = math.hypot(ux, uy) or 1.0; ux, uy = ux / n, uy / n
         if abs(ux) > abs(uy): ux, uy = (1.0 if ux > 0 else -1.0), 0.0   # walls are axis-aligned: snap inward direction
         else: ux, uy = 0.0, (1.0 if uy > 0 else -1.0)
         px, py = -uy, ux
@@ -300,23 +330,20 @@ def check_routes(sess, routes, width_m=0.8, level=None):
     level (rugs, stepping stones and overhead pieces are ignored); door/sliding partitions use their measured walkable opening;
     raised platforms (is_platform) are listed as `steps`, not blockers.
     level selects the floor height (default ground; use basement/upper for those floors). Facts only, never blocks an edit."""
-    import math as _m
-    from shapely.geometry import LineString
     if not isinstance(width_m, (int, float)) or not (0 < width_m <= 5):
         raise DecoError('BAD_INPUT', 'width_m must be in (0, 5]')
     if not isinstance(routes, list) or not routes:
         raise DecoError('BAD_INPUT', 'routes needs at least one {name, points}')
     room = sess.room; cat = sess.cat
-    levels = getattr(room, 'level_z', None) or {'ground': 0.0}
-    if level is not None and level not in levels:
-        raise DecoError('BAD_INPUT', f'level must be one of {list(levels)}')
-    z0 = levels.get(level or 'ground', 0.0)
+    if level is not None and level not in getattr(room, 'levels', ('ground',)):
+        raise DecoError('BAD_INPUT', f'level must be one of {list(getattr(room, "levels", ("ground",)))} for a {room.house_size}')
+    z0 = (getattr(room, 'level_z', None) or {'ground': 0.0}).get(level or 'ground', 0.0)
     out = []
     for r in routes:
         if not isinstance(r, dict) or not isinstance(r.get('name'), str) or not r['name'].strip():
             raise DecoError('BAD_INPUT', 'each route needs a nonempty name')
         pts = r.get('points')
-        if not isinstance(pts, list) or len(pts) < 2 or any(not isinstance(p, (list, tuple)) or len(p) != 2 or not all(isinstance(v, (int, float)) and _m.isfinite(v) for v in p) for p in pts):
+        if not isinstance(pts, list) or len(pts) < 2 or any(not isinstance(p, (list, tuple)) or len(p) != 2 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in p) for p in pts):
             raise DecoError('BAD_INPUT', f'route {r.get("name")!r} needs >=2 finite [x,y] points')
         lane = LineString([tuple(map(float, p)) for p in pts]).buffer(width_m / 2.0)
         blockers = []; steps = []

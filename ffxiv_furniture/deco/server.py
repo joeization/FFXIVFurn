@@ -6,8 +6,9 @@ Run with the Python environment containing requirements-render.txt."""
 
 from __future__ import annotations
 from collections import OrderedDict
-import hashlib, json, sys, time
+import hashlib, json, math, shutil, sys, time, traceback
 from pathlib import Path
+from typing import Any
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
 from .core import Catalog, Room, Session, DecoError, ROOT
@@ -59,7 +60,7 @@ CAMERAS = {
         "upper": True,
     },
     "up_top": {
-        "position": [0.5, 0, 52],
+        "position": [0, -0.5, 52],
         "target": [0, 0, 7],
         "fov": 32,
         "cutaway": True,
@@ -79,7 +80,7 @@ APT_CAMERAS = {
     "overview": {"position": [11, -13, 17], "target": [0, 0, 0], "fov": 60, "cutaway": True},
     "overview_ne": {"position": [12, 14, 13], "target": [0, -1, 0], "fov": 60, "cutaway": True},
     "overview_nw": {"position": [-12, 14, 13], "target": [0, -1, 0], "fov": 60, "cutaway": True},
-    "top": {"position": [0.5, 0, 40], "target": [0, 0, 0], "fov": 32, "cutaway": True},
+    "top": {"position": [0, -0.5, 40], "target": [0, 0, 0], "fov": 32, "cutaway": True},
     "entry": {"position": [0, 7.4, 2.4], "target": [0, -8, 1.2], "fov": 85},
     "south": {"position": [0, 7.0, 2.6], "target": [0, -8, 1.3], "fov": 75},
     "north": {"position": [0, -7.0, 2.6], "target": [0, 8, 1.3], "fov": 75},
@@ -107,7 +108,7 @@ SMALL_CAMERAS = {
         "hide_above_z": 4.6,
     },
     "top": {
-        "position": [1.5, 0, 38],
+        "position": [1.5, -0.5, 38],
         "target": [1.5, 0, 0],
         "fov": 44,
         "cutaway": True,
@@ -128,7 +129,7 @@ SMALL_CAMERAS = {
         "basement": True,
     },
     "bs_top": {
-        "position": [2.5, 4, 30],
+        "position": [2, 3.5, 30],
         "target": [2, 4, -7],
         "fov": 40,
         "cutaway": True,
@@ -184,7 +185,7 @@ def _cameras():
                 position=[cx + 0.85 * r, cy + 0.9 * r, 0.8 * r], target=[cx, cy, 2], fov=65
             ),
             entry=dict(position=[cx, y1 + 4, 2.6], target=[cx, cy, 2], fov=85),
-            top=dict(position=[cx + 0.01, cy, 1.6 * r], target=[cx, cy, 0], fov=45),
+            top=dict(position=[cx, cy - 0.01, 1.6 * r], target=[cx, cy, 0], fov=45),
             east=dict(position=[x1 + 4, cy, 2.6], target=[cx, cy, 2], fov=85),
             west=dict(position=[x0 - 4, cy, 2.6], target=[cx, cy, 2], fov=85),
         )
@@ -238,6 +239,12 @@ def _boot():
     scope = os.environ.get("DECO_SCOPE", "interior")
     if scope not in ("interior", "exterior"):
         raise DecoError("BAD_INPUT", "DECO_SCOPE must be interior or exterior")
+    try:
+        max_patch = float(os.environ["DECO_MAX_PATCH"]) if os.environ.get("DECO_MAX_PATCH") else None
+        if max_patch is not None and not math.isfinite(max_patch):
+            raise ValueError("non-finite patch")
+    except ValueError as error:
+        raise DecoError("BAD_INPUT", "DECO_MAX_PATCH must be a finite number") from error
     if scope == "exterior":
         from .exterior import ExteriorCatalog, ExteriorRoom, ExteriorSession
 
@@ -252,9 +259,7 @@ def _boot():
             SESS_DIR,
             seed_layout={k: v for k, v in layout.items() if k != "exteriorFurniture"},
             from_layout=layout if os.environ.get("DECO_FROM_LAYOUT") == "1" else None,
-            max_patch=(
-                float(os.environ["DECO_MAX_PATCH"]) if os.environ.get("DECO_MAX_PATCH") else None
-            ),
+            max_patch=max_patch,
         )
         _room = _sess.room
         return _sess
@@ -274,7 +279,7 @@ def _boot():
         SESS_DIR,
         seed_layout={k: v for k, v in layout.items() if k != "interiorFurniture"},
         from_layout=layout if os.environ.get("DECO_FROM_LAYOUT") == "1" else None,
-        max_patch=float(os.environ["DECO_MAX_PATCH"]) if os.environ.get("DECO_MAX_PATCH") else None,
+        max_patch=max_patch,
     )
     _room = _sess.room  # persisted state (including switched style) wins over environment/seed
     return _sess
@@ -287,6 +292,10 @@ def _wrap(fn):
         raise ToolError(
             json.dumps(e.payload(_sess.revision if _sess else None), ensure_ascii=False)
         )
+    except (ValueError, TypeError, KeyError) as e:
+        traceback.print_exc(file=sys.stderr)
+        error = DecoError("BAD_INPUT", str(e))
+        raise ToolError(json.dumps(error.payload(_sess.revision if _sess else None), ensure_ascii=False)) from e
 
 
 @mcp.tool()
@@ -365,7 +374,7 @@ def set_fixtures(
             json.dumps(
                 dict(
                     ok=False,
-                    error=dict(code="BAD_INPUT", message="give at least one of wall/floor/light"),
+                    error=dict(code="BAD_INPUT", message="give at least one of wall/floor/light/window/door"),
                 )
             )
         )
@@ -649,6 +658,8 @@ def _renderer_version():
             "raster.py",
             "raster_gpu.py",
             "house_materials.py",
+            "common.py",
+            "lighting.py",
             "assets.py",
             "native.py",
             "projection.py",
@@ -674,7 +685,7 @@ def _renderer_version():
         for ext in (".umap", ".uexp")
     )
     return (
-        "|".join(f"{p.name}:{p.stat().st_mtime_ns}" for p in files)
+        "|".join(f"{p.name}:{p.stat().st_mtime_ns if p.is_file() else 0}" for p in files)
         + f"|interior-assets:{BASE.stat().st_mtime_ns}"
     )
 
@@ -689,6 +700,9 @@ def _camera(view, session):
             )
         c = dict(cams[view], name=view)
     elif isinstance(view, dict):
+        unknown = set(view) - {"position", "target", "fov", "cutaway", "cut_stairs_z", "hide_above_z", "hide_below_z", "upper", "basement"}
+        if unknown:
+            raise DecoError("BAD_INPUT", f"unknown camera keys: {sorted(unknown)}")
         if "position" not in view or "target" not in view:
             raise DecoError("BAD_INPUT", "camera needs position and target")
         c = dict(
@@ -701,7 +715,11 @@ def _camera(view, session):
         raise DecoError("BAD_INPUT", "view must be a name or a camera dict")
     if c.get("cutaway") and not c.get("upper") and "hide_above_z" not in c:
         c["hide_above_z"] = -0.6 if c.get("basement") else 6.4
-    if not 1 < float(c["fov"]) < 175:
+    for key in ("position", "target"):
+        v = c[key]
+        if not isinstance(v, (list, tuple)) or len(v) != 3 or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in v):
+            raise DecoError("BAD_INPUT", f"camera {key} must contain three finite numbers")
+    if not isinstance(c["fov"], (int, float)) or isinstance(c["fov"], bool) or not 1 < c["fov"] < 175:
         raise DecoError("BAD_INPUT", "fov must be between 1 and 175")
     return c
 
@@ -727,6 +745,36 @@ def _prune_renders(out, keep_revisions=2):
             p.unlink(missing_ok=True)
 
 
+def _rehome_render(manifest: dict, prefix: str) -> dict:
+    """Keep a layout-cache hit's files under the revision being returned, including diagnostics."""
+    import re
+
+    image = Path(manifest["views"][0]["image"])
+    old_prefix = re.sub(r"-\d{2}(?:-labeled)?\.jpg$", "", image.name)
+    if old_prefix == prefix:
+        return manifest
+    replacements = {}
+    for src in image.parent.glob(old_prefix + "-*"):
+        if not src.is_file():
+            continue
+        dst = src.with_name(prefix + src.name[len(old_prefix):])
+        shutil.copyfile(src, dst)
+        replacements[str(src.resolve())] = str(dst.resolve())
+
+    def rewrite(value: Any) -> Any:
+        if isinstance(value, str): return replacements.get(value, value)
+        if isinstance(value, list): return [rewrite(v) for v in value]
+        if isinstance(value, dict): return {k: rewrite(v) for k, v in value.items()}
+        return value
+
+    result = rewrite(manifest)
+    for kind, path in result.get("artifacts", {}).items():
+        if kind == "layout": continue
+        p = Path(path)
+        p.write_text(json.dumps(rewrite(json.loads(p.read_text(encoding="utf-8"))), ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
+
+
 def _render_impl(
     view: str | dict = "overview",
     width: int = 960,
@@ -747,6 +795,10 @@ def _render_impl(
         s = _boot()
         if not (64 <= width <= 2048 and 64 <= height <= 2048):
             raise DecoError("BAD_INPUT", "width/height must be 64..2048")
+        if lighting not in ("dusk", "night", "day", "off", "warm"):
+            raise DecoError("BAD_INPUT", "lighting must be dusk, night, day or off")
+        if dye not in ("mi", "default", "none"):
+            raise DecoError("BAD_INPUT", "dye must be mi, default or none")
         cam = _camera(view, s)
         t0 = time.time()
         if crop:
@@ -818,6 +870,10 @@ def _render_impl(
                     _panel_mem.popitem(last=False)
             else:
                 _prune_renders(out)
+        elif persist:
+            m = _rehome_render(m, prefix)
+            _render_cache[cache_key] = m
+            _prune_renders(out)
         _render_cache.move_to_end(cache_key)
         while len(_render_cache) > _RENDER_CACHE_LIMIT:
             _render_cache.popitem(last=False)
@@ -987,7 +1043,7 @@ def analyze_layout(
 
     return _wrap(
         lambda: analyze(
-            _boot(), level, tuple(start) if start else None, path_width_m, front_depth_m
+            _boot(), level, start, path_width_m, front_depth_m
         )
     )
 
@@ -1011,6 +1067,14 @@ def check_routes(routes: list[dict], width_m: float = 0.8, level: str | None = N
 def export_json(name: str = "layout") -> dict:
     """Write the final ReMakePlace layout.json (UTF-16LE BOM, fixtures/metadata preserved from the seed) plus an instance-id map. Never overwrites app saves."""
     return _wrap(lambda: _boot().export(name))
+
+
+# FastMCP's generated argument models otherwise silently discard misspelled keys.
+for _tool in mcp._tool_manager.list_tools():
+    _model = _tool.fn_metadata.arg_model
+    _model.model_config["extra"] = "forbid"
+    _model.model_rebuild(force=True)
+    _tool.parameters = _model.model_json_schema()
 
 
 if __name__ == "__main__":

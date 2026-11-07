@@ -1,8 +1,7 @@
 """Flat yard plan for an exported layout's exteriorFurniture: measured footprints on the native plot outline, the house
-void, gate and front door from the native exterior actors. SVG by default (vector, small); --format jpg for raster-only
-viewers. Read-only: the layout, catalog DB and session state are hash-checked unchanged. No textures or 3D rendering.
+void, gate and front door from the native exterior actors, written as one JPEG. Read-only: the layout, catalog DB and session state are hash-checked unchanged. No textures or 3D rendering.
 
-    python scripts/yard_schematic.py <layout.json> [--limit 20] [--max-patch 7.2] [--format svg|jpg] [--out DIR]
+    python scripts/yard_schematic.py <layout.json> [--limit 20] [--max-patch 7.2] [--out DIR]
 """
 import argparse
 import hashlib
@@ -15,9 +14,12 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 from layout_schematic import font, load_items  # noqa: E402
 from ffxiv_furniture.exteriors import ExteriorProfile, native_exterior_actors  # noqa: E402
+from _plan_common import title_revision, draw_geom
 
 PAPER, PANEL, GRID, INK, MUTED, EDGE = "#F8F6F0", "#EFF1E9", "#DDE2D8", "#34483B", "#526358", "#435E4B"
 DEFAULT_LIMIT = {"Small": 40, "Medium": 60, "Large": 80}
+BOX = (50, 180, 1550, 1410)
+NOTE_XY = (1120, 1415)
 
 
 def colour(name):
@@ -37,7 +39,7 @@ def main():
     ap.add_argument("--out", type=Path, default=None, help="Defaults to the layout's renders/ directory")
     ap.add_argument("--limit", type=int, default=None, help="Outdoor furnishing budget to print (default: the house size cap)")
     ap.add_argument("--max-patch", default=None, help="Patch restriction to print, e.g. 7.2")
-    ap.add_argument("--format", choices=("svg", "jpg"), default="svg")
+    ap.add_argument("--scale", type=float, default=0.6, help="Output size factor (default 0.6; 1.0 = full size)")
     a = ap.parse_args()
 
     src = a.layout.resolve()
@@ -54,7 +56,7 @@ def main():
              for k, label in (("OutsideEntrance", "GATE"), ("MainDoor", "DOOR")) if k in actors]
 
     W, H = 1600, 1550
-    box = (50, 180, 1550, 1410)
+    box = BOX
     x0, y0, x1, y1 = yard.bounds
     S = min((box[2] - box[0] - 60) / (x1 - x0), (box[3] - box[1] - 60) / (y1 - y0))
     cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
@@ -63,16 +65,10 @@ def main():
     def xy(x, y):   # +X to the LEFT (app view), +Y up
         return cx - (x - mx) * S, cy - (y - my) * S
 
-    svg = raster = None
-    if a.format == "svg":
-        from svgdraw import SvgCanvas
-        svg = d = SvgCanvas(W, H, PAPER)
-    else:
-        from PIL import Image, ImageDraw
-        raster = Image.new("RGB", (W, H), PAPER); d = ImageDraw.Draw(raster)
+    from PIL import Image, ImageDraw
+    raster = Image.new("RGB", (W, H), PAPER); d = ImageDraw.Draw(raster)
     f18, f22, f38 = font(18), font(22), font(38, True)
-    title = src.stem.replace("_", " ").rsplit("-r", 1)[0]
-    revision = src.stem.rsplit("-r", 1)[-1] if "-r" in src.stem else "?"
+    title, revision = title_revision(src.stem)
     d.text((50, 35), f"{title.upper()} / YARD", font=f38, fill=INK)
     patch = f" | patch <= {a.max_patch}" if a.max_patch else ""
     d.text((50, 92), f"{size} house | revision {revision} | {len(rows)} / {budget} outdoor furnishings{patch}", font=f22, fill=MUTED)
@@ -86,7 +82,7 @@ def main():
         if box[1] + 3 < py < box[3] - 3: d.line((box[0] + 3, py, box[2] - 3, py), fill=GRID)
 
     def poly(p, fill, outline="#FAF9F4", width=2):
-        d.polygon([xy(x, y) for x, y in p.exterior.coords], fill=fill, outline=outline, width=width)
+        draw_geom(d, xy, p, fill=fill, outline=outline, width=width)
 
     for ring in yard.interiors:   # house footprint (native void), display only
         d.polygon([xy(x, y) for x, y in ring.coords], fill="#C9C9BE", outline=MUTED, width=3)
@@ -115,14 +111,15 @@ def main():
     d.line((sx, sy, sx + 2 * S, sy), fill=EDGE, width=3)
     for i in range(3):
         d.line((sx + i * S, sy - 5, sx + i * S, sy + 5), fill=EDGE, width=2); d.text((sx + i * S - 4, sy + 10), str(i), font=f18, fill=MUTED)
-    d.text((sx + 2 * S + 20, sy + 10), "m", font=f18, fill=MUTED); d.text((box[2] - 250, box[3] - 40), "+X left / +Y up", font=f18, fill=MUTED)
+    d.text((sx + 2 * S + 20, sy + 10), "m", font=f18, fill=MUTED); d.text(NOTE_XY, "+X left / +Y up", font=f18, fill=MUTED)
     d.text((50, 1450), "Planning view: intentional overlap is legal; crowns and bounds are not navigation or game collision.", font=f18, fill=MUTED)
     d.text((50, 1485), "Inspect gate, door, junctions and occupied eye-level views together with this plan. No furniture inventory.", font=f18, fill=MUTED)
 
     out_dir = a.out or (src.parent / "renders"); out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{src.stem}-plan.{a.format}"
-    if svg is not None: svg.save(path)
-    elif raster is not None: raster.save(path, "JPEG", quality=92)
+    path = out_dir / f"{src.stem}-plan.jpg"
+    if a.scale != 1.0:   # draw at full size, save smaller
+        raster = raster.resize((round(W * a.scale), round(H * a.scale)), Image.LANCZOS)
+    raster.save(path, "JPEG", quality=90)
     after = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}
     assert before == after, "source/database/session changed"
     print(json.dumps({"image": str(path), "count": len(rows), "limit": budget, "protected_files_unchanged": True}))

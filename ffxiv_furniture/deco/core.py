@@ -9,14 +9,13 @@ floating, blocked circulation are LEGAL. Nothing is ever silently moved/rotated/
 """
 
 from __future__ import annotations
-import re, copy, hashlib, json, math, os, sqlite3, time
+import re, copy, hashlib, json, math, os, sqlite3
 from pathlib import Path
 from ..config import source_path, catalog_path
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = catalog_path()
 INTERIOR_LIMITS = {"Medium": 450, "Apartment": 150, "Small": 300, "Large": 600}
-INTERIOR_LIMIT = 450  # legacy name: Medium cap
 TOL = 0.02
 
 
@@ -43,8 +42,7 @@ class DecoError(Exception):
 def prune_old_exports(folder, safe, revision):
     """Delete earlier exports of the same name (`<safe>-r<N>.json` and its `.map.json`), keeping only revision `revision`.
     Other names and app-written files (`.backup`, `.list.txt`) are untouched. Returns the removed file names."""
-    import re as _re
-    rx = _re.compile(r"^" + _re.escape(safe) + r"-r(\d+)(\.map)?\.json$")
+    rx = re.compile(r"^" + re.escape(safe) + r"-r(\d+)(\.map)?\.json$")
     removed = []
     for p in Path(folder).iterdir():
         mt = rx.match(p.name)
@@ -270,9 +268,8 @@ class Catalog:
             "SELECT item_id,name,visual_description,proposed_tags,asset_key FROM house_materials WHERE "
             + " AND ".join(where)
             + " ORDER BY name LIMIT ?",
-            args + [min(int(limit), 60)],
+            args + [max(1, min(int(limit), 60))],
         ).fetchall()
-        base = source_path("materials") / "HouseAssets" / cat
         return [
             dict(
                 item_id=r["item_id"],
@@ -300,7 +297,7 @@ class Catalog:
                     name=n, hex="%02X%02X%02X" % c, note="nearest housing dye to the requested hex"
                 )
             ]
-        return rows[:limit]
+        return rows[: max(1, min(int(limit), 60))]
 
     def tags(self, item_id):
         return [
@@ -346,14 +343,9 @@ class Catalog:
         sql = (
             """SELECT b.id FROM furniture_bounds b JOIN furniture f ON f.id=b.id LEFT JOIN placement_info p ON p.item_id=b.id WHERE """
             + " AND ".join(where)
-            + " ORDER BY (lower(b.name) LIKE ?) DESC, length(b.name), b.name LIMIT ? OFFSET ?"
+            + " ORDER BY (lower(b.name) LIKE ?) DESC, length(b.name), b.name"
         )
-        ids = [
-            r[0]
-            for r in self.db.execute(
-                sql.replace("LIMIT ? OFFSET ?", ""), args + [f"%{query.lower()}%"]
-            )
-        ]
+        ids = [r[0] for r in self.db.execute(sql, args + [f"%{query.lower()}%"])]
         ids = [i for i in ids if not self._too_new(i)][offset : offset + limit + 1]
         return self._rows(ids[:limit], None), len(ids) > limit
 
@@ -462,10 +454,9 @@ class Room:
         self.openings = self.openings_by_level["ground"]   # back-compat: ground-floor openings
         self.stairs = self.profile.stair_footprints("ground")
         self.walls_by_level = {
-            level: (self._walls(self.profile.polygon(level)) if level in self.levels else [])
+            level: (self._walls(self.polys[level]) if level in self.levels else [])
             for level in ("ground", "upper", "basement")
         }
-        self.walls = self.walls_by_level["ground"]
         self.pillars_by_level = {
             level: (self.profile.pillar_footprints(level) if level in self.levels else [])
             for level in ("ground", "upper", "basement")
@@ -579,20 +570,26 @@ class Room:
             parts = [g for g in getattr(hole, "geoms", [hole]) if g.area > 2.0]
             return unary_union(parts) if parts else hole
 
+        def basement_facts(name, bfoot, bz):
+            """Basement stair facts (shared by Small and Medium/Large): solid = walking-height obstacle per style (low flight + boxed
+            underside), foot = lowest steps, foot_access = approach zone minus the solid."""
+            bus = self.under_stair(name, bz, self.basement)
+            bsolid = bus["blocked"]
+            return dict(
+                solid=bsolid.buffer(0.02) if bsolid is not None else None,
+                foot=bfoot,
+                foot_access=(
+                    bfoot.buffer(self.ACCESS_M).difference(bsolid).intersection(self.basement)
+                    if bfoot is not None and bsolid is not None
+                    else (bfoot.buffer(self.ACCESS_M).intersection(self.basement) if bfoot is not None else None)
+                ),
+                under=bus,
+            )
+
         info = {}
         if self.house_size == "Small":
             w2, tri2 = self._stair_world("Stairs2_9")
             down_top = cells(w2, tri2, lambda z: z.max() > -0.6)
-            bfoot = cells(w2, tri2, lambda z: z.max() < -6.0)  # lowest steps
-            bus = self.under_stair("Stairs2_9", -7.0, self.basement)
-            bsolid = bus[
-                "blocked"
-            ]  # walking-height obstacle per style: low flight + boxed (enclosed) underside
-            bfoot_access = (
-                bfoot.buffer(self.ACCESS_M).difference(bsolid).intersection(self.basement)
-                if bfoot is not None and bsolid is not None
-                else None
-            )
             landing = box(4.6, -4.8, 6.0, -2.8).intersection(
                 self.floor
             )  # approach to the stair-landing doorway in the x=6 wall (wall-mesh gap y -4.6..-3.0)
@@ -605,12 +602,7 @@ class Room:
                     foot_access=landing,
                     arrival_access=None,
                 ),
-                basement=dict(
-                    solid=bsolid.buffer(0.02) if bsolid is not None else None,
-                    foot=bfoot,
-                    foot_access=bfoot_access,
-                    under=bus,
-                ),
+                basement=basement_facts("Stairs2_9", cells(w2, tri2, lambda z: z.max() < -6.0), -7.0),
                 down=dict(
                     landing_door_access=landing,
                     top=down_top,
@@ -655,19 +647,7 @@ class Room:
         hole = well(box(*self.floor.bounds).difference(self.floor))
         if "basement" in self.levels:   # Medium/Large: the same basement stair facts as Small
             bz = self.level_z["basement"]
-            bfoot = first_steps(w2, tri2, bz)
-            bus = self.under_stair(down_name, bz, self.basement)
-            bsolid = bus["blocked"]
-            info["basement"] = dict(
-                solid=bsolid.buffer(0.02) if bsolid is not None else None,
-                foot=bfoot,
-                foot_access=(
-                    bfoot.buffer(self.ACCESS_M).difference(bsolid).intersection(self.basement)
-                    if bfoot is not None and bsolid is not None
-                    else (bfoot.buffer(self.ACCESS_M).intersection(self.basement) if bfoot is not None else None)
-                ),
-                under=bus,
-            )
+            info["basement"] = basement_facts(down_name, first_steps(w2, tri2, bz), bz)
         info["down"] = dict(
             top=down_top,
             entry_access=(
@@ -787,17 +767,22 @@ class Room:
         cache[name] = r
         return r
 
+    @staticmethod
+    def _bounds(g):
+        return [round(v, 2) for v in g.bounds] if g is not None and not g.is_empty else None
+
+    @staticmethod
+    def _area(g):
+        return round(g.area, 1) if g is not None and not g.is_empty else 0.0
+
     def stair_summary(self):
         if self.house_size == "Apartment":
             return dict(note="Apartment has a single floor and no stairs.")
+        b, ar = self._bounds, self._area
         if self.house_size == "Small":
             d = self.stair_info()["down"]
-            b = lambda g: (
-                [round(v, 2) for v in g.bounds] if g is not None and not g.is_empty else None
-            )
             bs = self.stair_info()["basement"]
             u = bs["under"]
-            ar = lambda g: round(g.area, 1) if g is not None and not g.is_empty else 0.0
             return dict(
                 basement=dict(
                     stair_solid_xy_bounds=b(bs["solid"]),
@@ -822,11 +807,6 @@ class Room:
                     note="basement stair (Small has no upper floor); hiding it is a legitimate design, otherwise keep entry_access walkable",
                 ),
             )
-        import numpy as np
-
-        def b(g):
-            return [round(v, 2) for v in g.bounds] if g is not None and not g.is_empty else None
-
         s = self.stair_info()
         u, d = s["up"], s["down"]
         out = dict(
@@ -848,7 +828,6 @@ class Room:
         )
         if "basement" in s:
             bs = s["basement"]; ub = bs["under"]
-            ar = lambda g: round(g.area, 1) if g is not None and not g.is_empty else 0.0
             out["basement"] = dict(
                 stair_solid_xy_bounds=b(bs["solid"]),
                 stair_foot_xy_bounds=b(bs["foot"]),
@@ -862,6 +841,13 @@ class Room:
 
     def level_of(self, z):
         return "basement" if z <= -3.0 else ("upper" if z >= self.UPPER_Z - 1.0 else "ground")
+
+    @staticmethod
+    def level_of_span(z_bottom, z_top):
+        """Floor an ITEM belongs to from its world bottom/top z (the shared rule, see interiors.level_for_span)."""
+        from ffxiv_furniture.interiors import level_for_span
+
+        return level_for_span(z_bottom, z_top)
 
     def floor_at(self, z):
         return self.polys[self.level_of(z)]
@@ -885,7 +871,6 @@ class Room:
         if self.house_size not in ("Medium", "Large"):
             return {}
         import numpy as np
-        from ffxiv_furniture.geometry_mesh import read_static_mesh_triangles
 
         out = {}
         if "basement" in self.levels:
@@ -896,34 +881,18 @@ class Room:
             w, tri = self._stair_world(name)
             P = w[tri]
             x0, y0, x1, y1 = P[:, :, 0].min(), P[:, :, 1].min(), P[:, :, 0].max(), P[:, :, 1].max()
+            # barycentric invariants of the flight's triangles (independent of the sample cell)
+            A, B, C = P[:, 0, :2], P[:, 1, :2], P[:, 2, :2]
+            d = (B[:, 1] - C[:, 1]) * (A[:, 0] - C[:, 0]) + (C[:, 0] - B[:, 0]) * (A[:, 1] - C[:, 1])
+            ok = np.abs(d) > 1e-9
+            dd = np.where(ok, d, 1)
             cells = []
             for gx in np.arange(math.floor(x0), x1, step):
                 for gy in np.arange(math.floor(y0), y1, step):
                     px, py = gx + step / 2, gy + step / 2
                     lo = None
-                    A, B, C = P[:, 0, :2], P[:, 1, :2], P[:, 2, :2]
-                    d = (B[:, 1] - C[:, 1]) * (A[:, 0] - C[:, 0]) + (C[:, 0] - B[:, 0]) * (
-                        A[:, 1] - C[:, 1]
-                    )
-                    ok = np.abs(d) > 1e-9
-                    l1 = np.where(
-                        ok,
-                        (
-                            (B[:, 1] - C[:, 1]) * (px - C[:, 0])
-                            + (C[:, 0] - B[:, 0]) * (py - C[:, 1])
-                        )
-                        / np.where(ok, d, 1),
-                        -1,
-                    )
-                    l2 = np.where(
-                        ok,
-                        (
-                            (C[:, 1] - A[:, 1]) * (px - C[:, 0])
-                            + (A[:, 0] - C[:, 0]) * (py - C[:, 1])
-                        )
-                        / np.where(ok, d, 1),
-                        -1,
-                    )
+                    l1 = np.where(ok, ((B[:, 1] - C[:, 1]) * (px - C[:, 0]) + (C[:, 0] - B[:, 0]) * (py - C[:, 1])) / dd, -1)
+                    l2 = np.where(ok, ((C[:, 1] - A[:, 1]) * (px - C[:, 0]) + (A[:, 0] - C[:, 0]) * (py - C[:, 1])) / dd, -1)
                     l3 = 1 - l1 - l2
                     hit = ok & (l1 >= -1e-6) & (l2 >= -1e-6) & (l3 >= -1e-6)
                     if hit.any():
@@ -1024,7 +993,8 @@ class Session:
         style = st.get("style", legacy_style)
         room = self.room if self.room.style == style else Room(style, self.room.house_size)
         self.instances = copy.deepcopy(st["instances"])
-        self.next_id = st["next_id"]
+        # Restoring content must not recycle identities handed to clients.
+        self.next_id = max(self.next_id, st["next_id"])
         self.fixtures = copy.deepcopy(st.get("fixtures", {}))
         self.room = room
         self.instances_view = None
@@ -1040,6 +1010,7 @@ class Session:
             seed=self.seed,
             catalog=self.cat.sha(),
             max_patch=self.max_patch,
+            id_floor=self.next_id,
         )
         tmp = self.dir / "state.json.tmp"
         tmp.write_text(json.dumps(d), encoding="utf-8")
@@ -1065,6 +1036,8 @@ class Session:
         self.undo_stack = d["undo"]
         self.redo_stack = d["redo"]
         self.snapshots = d["snapshots"]
+        states = [d["state"]] + [e["state"] for e in self.undo_stack + self.redo_stack] + [e["state"] for e in self.snapshots.values()]
+        self.next_id = max(self.next_id, d.get("id_floor", 1), *(s.get("next_id", 1) for s in states))
 
     def _import(self, layout):
         self.seed = {k: v for k, v in layout.items() if k != "interiorFurniture"}
@@ -1194,7 +1167,10 @@ class Session:
                 from ..config import source_path
                 from ..geometry import read_static_mesh_bounds
 
-                folder = source_path("materials") / "HouseAssets/CeilingLight" / "".join(name.split())
+                row = self.cat.db.execute("SELECT asset_key FROM house_materials WHERE category='CeilingLight' AND name=?", (name,)).fetchone()
+                if row is None:
+                    return None
+                folder = source_path("materials") / Path(row["asset_key"]).relative_to("MakePlace/Content")
                 r = read_static_mesh_bounds(folder / (folder.name + ".uexp"))
                 lo, hi = r["local_min_m"], r["local_max_m"]
                 self._light_bounds_cache[name] = (max(abs(lo[0]), abs(hi[0]), abs(lo[1]), abs(hi[1])), lo[2])
@@ -1220,7 +1196,7 @@ class Session:
             add("BAD_INPUT", "non-finite transform")
             return
         _zb = inst["pivot"][2] + it["lo"][2]
-        _lv = self.room.level_of(_zb)
+        _lv = self.room.level_of_span(_zb, inst["pivot"][2] + it["hi"][2])
         if self.room.openings_by_level.get(_lv):
             from shapely.geometry import box as _box
 
@@ -1304,7 +1280,7 @@ class Session:
         tol = (
             0.25 if inst["pivot"][2] + it["lo"][2] > 0.3 else TOL
         )  # raised items (on wall shelves/tables) may touch the wall surface; ground items may not
-        lvl = self.room.floor_at(inst["pivot"][2] + it["lo"][2])
+        lvl = self.room.polys[_lv]
         if not lvl.buffer(tol).contains(fp):
             out = fp.difference(lvl.buffer(tol)).area
             add(
@@ -1313,7 +1289,7 @@ class Session:
             )
         zb = inst["pivot"][2] + it["lo"][2]
         si = self.room.stair_info()
-        lvl_name = self.room.level_of(zb)
+        lvl_name = _lv
         if lvl_name == "basement" and "basement" in si:
             bsi = si["basement"]
             u = bsi.get("under") or {}
@@ -1366,11 +1342,11 @@ class Session:
 
     def _budget(self, instances, issues):
         n = len(instances) + self.reserved_other_floors
-        if n > self.room.limit:
+        if n > self.room.limit and n > len(self.instances) + self.reserved_other_floors:
             issues.append(
                 dict(
                     code="BUDGET_EXCEEDED",
-                    message=f"{n} > {self.room.limit} interior items (whole-house cap)",
+                    message=f"{n} > {self.room.limit} interior items (whole-house cap); remove {n - self.room.limit} items",
                     instance_id=None,
                     op_index=None,
                 )
@@ -1400,6 +1376,8 @@ class Session:
         iid = op.get("instance_id")
         it = self._resolve_item(op)
         if iid is not None and iid in st["instances"]:
+            if it is not None and it["id"] != st["instances"][iid]["item_id"]:
+                raise DecoError("BAD_INPUT", "existing instance_id refers to a different item")
             return st["instances"][iid], self.cat.item(st["instances"][iid]["item_id"])
         if it is None:
             raise DecoError(
@@ -1428,7 +1406,37 @@ class Session:
         return new, it
 
     def _apply_one(self, st, op):
+        if not isinstance(op, dict):
+            raise DecoError("BAD_INPUT", "operation must be an object")
         kind = op.get("op")
+        fields = {
+            "place": "instance_id item_id name position yaw_deg anchor color",
+            "move": "instance_id position delta anchor",
+            "rotate": "instance_id yaw_deg yaw_delta_deg anchor",
+            "remove": "instance_id",
+            "interior": "style",
+            "dye": "instance_id color",
+            "fixture": "type level item_id name",
+            "face": "instance_id target_id direction_deg",
+            "place_on": "instance_id item_id name target_id surface_idx offset_xy gap_m yaw_deg",
+            "place_along_wall": "instance_id item_id name wall_id level along_m gap_m facing height_m z",
+        }
+        if not isinstance(kind, str) or kind not in fields:
+            raise DecoError("BAD_INPUT", f"unknown op {kind!r}")
+        allowed = {"op", *fields[kind].split()}
+        unknown = set(op) - allowed
+        if unknown:
+            raise DecoError("BAD_INPUT", f"unknown fields {sorted(unknown)}; allowed fields: {sorted(allowed)}")
+        for key in ("instance_id", "target_id"):
+            if key in op and not (isinstance(op[key], str) and op[key].replace("_", "").replace("-", "").isalnum() and len(op[key]) <= 40):
+                raise DecoError("BAD_INPUT", f"{key} must be alphanumeric/_/- (1..40 characters)")
+        if "anchor" in op and op["anchor"] not in ("pivot", "bottom_center"):
+            raise DecoError("BAD_INPUT", "anchor must be 'pivot' or 'bottom_center'")
+        for operation, a, b in (("move", "position", "delta"), ("rotate", "yaw_deg", "yaw_delta_deg")):
+            if kind == operation and ((a in op) == (b in op)):
+                raise DecoError("BAD_INPUT", f"{operation} requires exactly one of {a} or {b}")
+        if kind in ("face", "place_on") and op.get("instance_id") is not None and op.get("instance_id") == op.get("target_id"):
+            raise DecoError("BAD_INPUT", "an instance cannot target itself")
         touched = set()
         removed = set()
         if kind == "remove":
@@ -1620,6 +1628,7 @@ class Session:
                 touched |= t
                 removed |= r
                 touched -= r
+                removed -= t
                 for x in t:
                     idx_of[x] = i
             except DecoError as e:
@@ -1627,7 +1636,7 @@ class Session:
                     dict(
                         code=e.code,
                         message=e.message,
-                        instance_id=op.get("instance_id"),
+                        instance_id=op.get("instance_id") if isinstance(op, dict) else None,
                         op_index=i,
                     )
                 )
@@ -1641,8 +1650,9 @@ class Session:
                     )
                 )
         if not issues:
-            old_room = self.room
+            old_room, old_fixtures = self.room, self.fixtures
             try:
+                self.fixtures = st.get("fixtures", {})
                 if st.get("style", self.room.style) != self.room.style:
                     self.room = Room(st["style"], self.room.house_size)
                     touched.update(st["instances"])
@@ -1656,6 +1666,7 @@ class Session:
                 self._budget(st["instances"], issues)
             finally:
                 self.room = old_room
+                self.fixtures = old_fixtures
                 self.instances_view = None
         advisory = [
             i
@@ -1752,8 +1763,9 @@ class Session:
             raise DecoError("UNKNOWN_SNAPSHOT", f"unknown snapshot {sid!r}")
         st = self.snapshots[sid]["state"]
         issues = []
-        previous = self.room
+        previous, previous_fixtures = self.room, self.fixtures
         try:
+            self.fixtures = st.get("fixtures", {})
             self.room = Room(
                 house_size=previous.house_size,
                 style=st.get(
@@ -1773,6 +1785,7 @@ class Session:
                 self.validate(inst, issues)
         finally:
             self.room = previous
+            self.fixtures = previous_fixtures
             self.instances_view = None
         issues = [i for i in issues if i["code"] not in self.ADVISORY]
         if issues:
@@ -1822,6 +1835,9 @@ class Session:
             if instance_ids and inst["id"] not in instance_ids:
                 continue
             v = self.view(inst)
+            b = v["bounds_world"]
+            if getattr(self.cat, "scope", "interior") == "interior" and Room.level_of_span(b["min"][2], b["max"][2]) != level:
+                continue
             if region:
                 lo, hi = region["min"], region["max"]
                 b = v["bounds_world"]

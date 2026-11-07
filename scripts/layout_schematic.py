@@ -2,7 +2,7 @@
 
 Pure schematic: colored bounding footprints drawn from the layout's own
 transforms plus catalog-measured bounds. No game textures, meshes, or 3D
-rendering; nothing except the output plan (SVG by default, or JPEG with --format jpg) is written.
+rendering; nothing except the output JPEG plan is written.
 
 View is mirrored horizontally by default (+X to the left, +Y up) to match the
 app as observed by the user, same convention as MCP renders. Doors and windows
@@ -36,6 +36,10 @@ from PIL import Image, ImageDraw, ImageFont
 from shapely.geometry import MultiPoint, Point
 
 from ffxiv_furniture.deco.core import Room
+try:
+    from ._plan_common import index_geometry, title_revision, draw_scale_bar
+except ImportError:
+    from _plan_common import index_geometry, title_revision, draw_scale_bar
 
 CATEGORIES = [
     ("Seating", "#6F91AC"),
@@ -182,11 +186,7 @@ def load_items(layout: dict, db_path: Path) -> list[dict]:
             )
             corners = (corners * np.array(item["transform"]["scale"])) @ rotation.T + loc
             footprint = MultiPoint(corners[:, :2]).convex_hull
-            level = "basement" if loc[2] < -3 else "ground"
-            # Medium/Large upper floors are at +7 m. Use the transformed bottom,
-            # not a high pivot, so tall ground-floor panels remain downstairs.
-            if layout.get("houseSize") in ("Medium", "Large") and float(corners[:, 2].min()) >= 6.4:
-                level = "upper"
+            level = Room.level_of_span(float(corners[:, 2].min()), float(corners[:, 2].max()))
             rows.append(
                 dict(
                     id=index,
@@ -220,7 +220,7 @@ def main() -> None:
     ap.add_argument("--no-labels", action="store_true")
     ap.add_argument("--index", action="store_true", help="Include an optional furniture inventory (omitted from planning views by default)")
     ap.add_argument("--no-mirror", action="store_true", help="Raw world axes (+X right) instead of the app-mirrored view")
-    ap.add_argument("--format", choices=("svg", "jpg"), default="svg", help="svg (default: vector, small, sharp) or jpg raster for image-only viewers")
+    ap.add_argument("--scale", type=float, default=0.6, help="Output size factor of the drawing canvas (default 0.6; 1.0 = full size)")
     args = ap.parse_args()
 
     source = args.layout.resolve()
@@ -248,21 +248,18 @@ def main() -> None:
     if set(counts) - set(floors):
         raise SystemExit(f"Furniture on unsupported schematic floors: {sorted(set(counts)-set(floors))}")
 
-    W, H = 3200, 3080 if args.index else 1800
     panel_w, panel_h = 1500, 1340
-    if args.format == "svg":
-        try:
-            from svgdraw import SvgCanvas
-        except ImportError:
-            from scripts.svgdraw import SvgCanvas
-        img = d = SvgCanvas(W, H, PAPER)
-    else:
-        img = Image.new("RGB", (W, H), PAPER)
-        d = ImageDraw.Draw(img)
+    # one 1500 px panel per floor (Small 2, Medium/Large 3); width grows so no floor is drawn off the canvas
+    W, H = max(3200, 130 + len(floors) * panel_w + (len(floors) - 1) * 70), 3080 if args.index else 1800
+    index_cols, index_rows, index_height = index_geometry(len(items), W)
+    if args.index:
+        H = max(H, index_height)
+    img = Image.new("RGB", (W, H), PAPER)
+    d = ImageDraw.Draw(img)
     f20, f23, f26, f32, f48 = font(20), font(23), font(26), font(32, True), font(48, True)
-    title = source.stem.replace("_", " ").rstrip(" -0123456789.rR")
+    title, revision = title_revision(source.stem)
     d.text((80, 45), title.upper(), font=f48, fill=INK)
-    revision = "r?" if "-" not in source.stem else source.stem.rsplit("-", 1)[-1]
+
     d.text(
         (82, 112),
         f"{revision}  /  {len(floors)}-FLOOR SCHEMATIC  /  {layout['houseSize']} - {district or 'Shirogane'} interior",
@@ -483,10 +480,7 @@ def main() -> None:
 
         draw_poly(room.polys[level], outline=OUTLINE, width=5)
         sx, sy = panel_x + 48, panel_y + panel_h - 65
-        d.line((sx, sy, sx + 2 * common, sy), fill=OUTLINE, width=5)
-        for dx in [0, common, 2 * common]:
-            d.line((sx + dx, sy - 8, sx + dx, sy + 8), fill=OUTLINE, width=3)
-        d.text((sx, sy + 13), "0        1        2 m", font=f20, fill=MUTED)
+        draw_scale_bar(d, sx, sy, common, f20, OUTLINE, MUTED)
         d.text((panel_x + panel_w - 240, sy + 5), "+X left / +Y up" if mirror else "+X right / +Y up", font=f20, fill=MUTED)
 
     x = 85
@@ -510,7 +504,7 @@ def main() -> None:
             fill=MUTED,
         )
         for i, r in enumerate(items):
-            col, row = divmod(i, 28)
+            col, row = divmod(i, index_rows)
             x = 85 + col * 785
             y = 1775 + row * 35
             label = f'{r["id"]:03d}  {dict(ground="G",upper="U",basement="B")[r["level"]]}  {r["name"]}'
@@ -532,11 +526,11 @@ def main() -> None:
 
     out_dir = args.out or (source.parent / "renders")
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{source.stem}-schematic.{args.format}"   # one file per layout revision, rewritten in place
-    if args.format == "svg":
-        img.save(out)
-    else:
-        img.convert("RGB").save(out, "JPEG", quality=92)
+    out = out_dir / f"{source.stem}-schematic.jpg"   # one file per layout revision, rewritten in place
+    img = img.convert("RGB")
+    if args.scale != 1.0:   # draw at full size for clean geometry/text, save smaller
+        img = img.resize((round(img.width * args.scale), round(img.height * args.scale)), Image.LANCZOS)
+    img.save(out, "JPEG", quality=90)
 
     assert len(items) == len(layout["interiorFurniture"]) == sum(counts.values())
     if before is not None:

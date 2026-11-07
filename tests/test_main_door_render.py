@@ -31,7 +31,8 @@ class MainEntranceRenderTests(unittest.TestCase):
                 layout['exteriorFixture'] = [dict(type='Door', name=selected_door)]
             src.write_text(json.dumps(layout), encoding='utf-8')
             return run_pipeline(src, Path(tmp) / f'run-{size}', db_path=ROOT / 'data/furniture-test.sqlite3',
-                                room_context=True, size=(96, 64), mirror_view=False,
+                                # Keep doorway pixels below the fixed 40-row diagnostic banner.
+                                room_context=True, size=(192, 128), mirror_view=False,
                                 cameras=[dict(name='entry', position=[0, 4, 2.2], target=[0, 8, 1.2], fov=80)])
 
     def test_cutaway_plan_views_keep_main_door(self):

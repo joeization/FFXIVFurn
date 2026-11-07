@@ -78,6 +78,7 @@ def _lin(v):
 
 
 class _Gpu:
+    live_framebuffers = 0
     ctx = None
     prog = None
     cache = {}     # (id(meshes), len(meshes)) -> prepared per-mesh buffers; only the latest scene is kept
@@ -135,59 +136,64 @@ def render_gpu(meshes, camera, path, *, size=(960, 640), near=.1, approximate_ti
         _Gpu.cache = {key: {}}; _Gpu.ref = meshes
     prepared = _Gpu.cache[key]
     fbo = ctx.framebuffer([ctx.texture(size, 4, dtype='f1'), ctx.texture(size, 4, dtype='f1'), ctx.texture(size, 1, dtype='f4')], ctx.depth_texture(size))
-    fbo.use(); fbo.clear(0.0, 0.0, 0.0, 0.0, 1.0); ctx.enable(moderngl.DEPTH_TEST); ctx.disable(moderngl.CULL_FACE); ctx.depth_func = '<'
-    A = (FAR + near) / (FAR - near); B = -2 * FAR * near / (FAR - near)
-    prog['eye'].value = tuple(float(x) for x in eye); prog['basis'].write(np.ascontiguousarray(basis.T, dtype='f4').tobytes())
-    prog['proj'].value = (sx * 2 * focal / width, 2 * focal / height, A, B)
-    lighting = camera.get('lighting'); L = lighting.get('lights', [])[:64] if lighting else []
-    prog['lit'].value = int(bool(lighting)); prog['eye_pos'].value = tuple(float(x) for x in eye); prog['exposure'].value = float(lighting.get('exposure', 1.0)) if lighting else 1.0
-    prog['ambient_lo'].value = tuple(float(x) for x in _lin(lighting.get('ambient_lo', (.05, .05, .06)))) if lighting else (0, 0, 0)
-    prog['ambient_hi'].value = tuple(float(x) for x in _lin(lighting.get('ambient_hi', (.1, .1, .12)))) if lighting else (0, 0, 0)
-    prog['n_lights'].value = len(L)
-    if L:
-        lp = np.zeros((64, 4), 'f4'); lc = np.zeros((64, 4), 'f4')
-        for k, l in enumerate(L): lp[k] = [*l['pos'], l.get('radius', 3.0)]; lc[k, :3] = np.asarray(l['color'], float) * l.get('intensity', 1.0)
-        prog['light_pos'].write(lp.tobytes()); prog['light_col'].write(lc.tobytes())
-    input_faces = 0; clipped = 0; translucent = []
-    prog['alpha'].value = 1.0
-    def draw(m, mesh):
-        prog['emissive'].value = tuple(float(x) for x in mesh.get('emissive', (0, 0, 0))) if lighting else (0, 0, 0)
-        prog['cutout'].value = int(m['cutout']); prog['mode'].value = m['mode']; prog['base'].value = m['base']; prog['obj_id'].value = m['id']; prog['tsize'].value = m['tsize']
-        use_tint = bool(approximate_tint and m['tint'] is not None); prog['use_tint'].value = int(use_tint); prog['tint'].value = m['tint'] if use_tint else (1.0, 1.0, 1.0)
-        if m['texture'] is not None: m['texture'].use(0); prog['tex'].value = 0
-        m['vao'].render(moderngl.TRIANGLES)
-    for index, mesh in enumerate(meshes):
-        if camera.get('cutaway') and mesh.get('role') in ('enclosure', 'upper_enclosure', 'ceiling_light', 'window'): continue   # plans: no shell, no pendants, no wall windows
-        if mesh.get('role') == 'void' and not camera.get('cutaway'): continue   # walled-off floor marker: plan cutaways only
-        ha = camera.get('hide_above_z'); hb = camera.get('hide_below_z')
-        if ha is not None or hb is not None:
-            zz = np.asarray(mesh['vertices'])[:, 2]
-            if ha is not None and zz.min() >= ha: continue
-            if hb is not None and zz.max() <= hb: continue
-        if not 0 < mesh['id'] < 65536: raise ValueError('Object ID exceeds lossless16-bit output')
-        cut = camera.get('cut_stairs_z') if mesh.get('role') == 'stair' else None
-        pk = (index, cut)
-        if pk not in prepared: prepared[pk] = _prepare(ctx, prog, mesh, cut, texture_pool=_Gpu.texture_pool)
-        m = prepared[pk]
-        if m is None: continue
-        input_faces += m['triangles']
-        zc = (m['world'] - eye) @ basis[2]; zt = zc[m['tri']]; clipped += int(((zt.min(axis=1) < near) & (zt.max(axis=1) >= near)).sum())   # statistic only; the GPU does the clipping
-        if (mesh.get('material') or {}).get('glass'):
-            translucent.append((float(np.mean(zc)), m, mesh)); continue
-        draw(m, mesh)
-    if translucent:
-        # Glass/rain: blend over the opaque image back-to-front; colour only (ID and linear-depth targets keep what is behind), no depth writes.
-        fbo.color_mask = ((True, True, True, False), (False, False, False, False), (False, False, False, False))
-        ctx.enable(moderngl.BLEND); ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA; ctx.depth_mask = False
-        for _, m, mesh in sorted(translucent, key=lambda t: -t[0]):
-            prog['alpha'].value = float(mesh['material'].get('glass_alpha', 0.2)); draw(m, mesh)
-        prog['alpha'].value = 1.0; ctx.disable(moderngl.BLEND); ctx.depth_mask = True
-        fbo.color_mask = ((True, True, True, True),) * 3
-    rgba = np.frombuffer(fbo.read(components=4, attachment=0, dtype='f1'), np.uint8).reshape(height, width, 4)[::-1]
-    idc = np.frombuffer(fbo.read(components=4, attachment=1, dtype='f1'), np.uint8).reshape(height, width, 4)[::-1]
-    depth = np.frombuffer(fbo.read(components=1, attachment=2, dtype='f4'), np.float32).reshape(height, width)[::-1]
-    for t in fbo.color_attachments: t.release()
-    fbo.depth_attachment.release(); fbo.release()
+    _Gpu.live_framebuffers += 1
+    try:
+        fbo.use(); fbo.clear(0.0, 0.0, 0.0, 0.0, 1.0); ctx.enable(moderngl.DEPTH_TEST); ctx.disable(moderngl.CULL_FACE); ctx.depth_func = '<'
+        A = (FAR + near) / (FAR - near); B = -2 * FAR * near / (FAR - near)
+        prog['eye'].value = tuple(float(x) for x in eye); prog['basis'].write(np.ascontiguousarray(basis.T, dtype='f4').tobytes())
+        prog['proj'].value = (sx * 2 * focal / width, 2 * focal / height, A, B)
+        lighting = camera.get('lighting'); L = lighting.get('lights', [])[:64] if lighting else []
+        prog['lit'].value = int(bool(lighting)); prog['eye_pos'].value = tuple(float(x) for x in eye); prog['exposure'].value = float(lighting.get('exposure', 1.0)) if lighting else 1.0
+        prog['ambient_lo'].value = tuple(float(x) for x in _lin(lighting.get('ambient_lo', (.05, .05, .06)))) if lighting else (0, 0, 0)
+        prog['ambient_hi'].value = tuple(float(x) for x in _lin(lighting.get('ambient_hi', (.1, .1, .12)))) if lighting else (0, 0, 0)
+        prog['n_lights'].value = len(L)
+        if L:
+            lp = np.zeros((64, 4), 'f4'); lc = np.zeros((64, 4), 'f4')
+            for k, l in enumerate(L): lp[k] = [*l['pos'], l.get('radius', 3.0)]; lc[k, :3] = np.asarray(l['color'], float) * l.get('intensity', 1.0)
+            prog['light_pos'].write(lp.tobytes()); prog['light_col'].write(lc.tobytes())
+        input_faces = 0; clipped = 0; translucent = []
+        prog['alpha'].value = 1.0
+        def draw(m, mesh):
+            prog['emissive'].value = tuple(float(x) for x in mesh.get('emissive', (0, 0, 0))) if lighting else (0, 0, 0)
+            prog['cutout'].value = int(m['cutout']); prog['mode'].value = m['mode']; prog['base'].value = m['base']; prog['obj_id'].value = m['id']; prog['tsize'].value = m['tsize']
+            use_tint = bool(approximate_tint and m['tint'] is not None); prog['use_tint'].value = int(use_tint); prog['tint'].value = m['tint'] if use_tint else (1.0, 1.0, 1.0)
+            if m['texture'] is not None: m['texture'].use(0); prog['tex'].value = 0
+            m['vao'].render(moderngl.TRIANGLES)
+        for index, mesh in enumerate(meshes):
+            if camera.get('cutaway') and mesh.get('role') in ('enclosure', 'upper_enclosure', 'ceiling_light', 'window'): continue   # plans: no shell, no pendants, no wall windows
+            if mesh.get('role') == 'void' and not camera.get('cutaway'): continue   # walled-off floor marker: plan cutaways only
+            ha = camera.get('hide_above_z'); hb = camera.get('hide_below_z')
+            if ha is not None or hb is not None:
+                zz = np.asarray(mesh['vertices'])[:, 2]
+                if ha is not None and zz.min() >= ha: continue
+                if hb is not None and zz.max() <= hb: continue
+            if not 0 < mesh['id'] < 65536: raise ValueError('Object ID exceeds lossless16-bit output')
+            cut = camera.get('cut_stairs_z') if mesh.get('role') == 'stair' else None
+            pk = (index, cut)
+            if pk not in prepared: prepared[pk] = _prepare(ctx, prog, mesh, cut, texture_pool=_Gpu.texture_pool)
+            m = prepared[pk]
+            if m is None: continue
+            input_faces += m['triangles']
+            zc = (m['world'] - eye) @ basis[2]; zt = zc[m['tri']]; clipped += int(((zt.min(axis=1) < near) & (zt.max(axis=1) >= near)).sum())   # statistic only; the GPU does the clipping
+            if (mesh.get('material') or {}).get('glass'):
+                translucent.append((float(np.mean(zc)), m, mesh)); continue
+            draw(m, mesh)
+        if translucent:
+            # Glass/rain: blend over the opaque image back-to-front; colour only (ID and linear-depth targets keep what is behind), no depth writes.
+            fbo.color_mask = ((True, True, True, False), (False, False, False, False), (False, False, False, False))
+            ctx.enable(moderngl.BLEND); ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA; ctx.depth_mask = False
+            for _, m, mesh in sorted(translucent, key=lambda t: -t[0]):
+                prog['alpha'].value = float(mesh['material'].get('glass_alpha', 0.2)); draw(m, mesh)
+            prog['alpha'].value = 1.0; ctx.disable(moderngl.BLEND); ctx.depth_mask = True
+            fbo.color_mask = ((True, True, True, True),) * 3
+        rgba = np.frombuffer(fbo.read(components=4, attachment=0, dtype='f1'), np.uint8).reshape(height, width, 4)[::-1]
+        idc = np.frombuffer(fbo.read(components=4, attachment=1, dtype='f1'), np.uint8).reshape(height, width, 4)[::-1]
+        depth = np.frombuffer(fbo.read(components=1, attachment=2, dtype='f4'), np.float32).reshape(height, width)[::-1]
+    finally:
+        ctx.disable(moderngl.BLEND); ctx.depth_mask = True
+        for t in fbo.color_attachments: t.release()
+        fbo.depth_attachment.release(); fbo.release()
+        _Gpu.live_framebuffers -= 1
     ids = (idc[:, :, 0].astype(np.uint16) | (idc[:, :, 1].astype(np.uint16) << 8)); covered = ids > 0
     rgb = np.array(rgba[:, :, :3]); rgb[~covered] = BACKGROUND
     zbuf = np.where(covered, depth.astype(np.float64), np.inf)

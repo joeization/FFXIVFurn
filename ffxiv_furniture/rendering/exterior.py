@@ -11,6 +11,8 @@ from ..interiors import transform_points
 from ..housing import validate_layout_budget
 from .assets import Assets
 from .raster import render
+from .common import validate_cameras, load_fallback_colours, coverage_warnings
+from .lighting import resolve_mood, emitter_light, apply_light_budget
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,6 +40,11 @@ def render_exterior(
 ):
     from .pipeline import _RESOURCE_CACHE, quaternion_matrix, _mesh_flat
 
+    if cameras is not None:
+        validate_cameras(cameras)
+    warnings = []
+    if dye_mode == "default":
+        warnings.append("Exterior dye_mode=default is not implemented; furniture uses raw Base colours, not default stains.")
     start = time.perf_counter()
     out = Path(out)
     budget = validate_layout_budget(layout)
@@ -67,12 +74,7 @@ def render_exterior(
         ]
         for r in records:
             r["item_id"] = int(r["item_id"])
-        fallback = {
-            i: h
-            for i, h in db.execute(
-                "SELECT item_id,c1_hex FROM item_colors WHERE c1_hex IS NOT NULL"
-            )
-        }
+        fallback = load_fallback_colours(db, warnings)
         assets = Assets(
             records,
             ROOT / "outputs/render-pipeline/cache",
@@ -189,37 +191,25 @@ def render_exterior(
         ]
     if view_names:
         cameras = [c for c in cameras if c.get("name") in view_names]
-    if not 1 <= len(cameras) <= 8:
-        raise ValueError("Need 1..8 bounded exterior cameras")
+    validate_cameras(cameras)
     if lighting:
-        moods = {
-            "day": ([0.45, 0.44, 0.42], [0.75, 0.78, 0.85], 1.3),
-            "dusk": ([0.10, 0.09, 0.10], [0.22, 0.22, 0.28], 1.25),
-            "night": ([0.04, 0.04, 0.07], [0.08, 0.09, 0.15], 1.4),
-        }
-        if lighting not in moods:
-            raise ValueError("Unknown exterior lighting mood")
-        alo, ahi, exposure = moods[lighting]
+        mood = resolve_mood(lighting)
         lights = []
+        emissive_ids = {m['id'] for m in meshes if (m.get('material') or {}).get('emissive')}
         for mesh in meshes:
-            ob = objects[str(mesh["id"])]
-            if mesh["role"] == "furniture" and re.search(
-                r"lamp|lantern|torch|fire|light", ob["name"], re.I
-            ):
-                mesh["emissive"] = (0.8, 0.624, 0.4)
-                if not any(l["id"] == mesh["id"] for l in lights):
-                    vv = mesh["vertices"]
-                    p = (vv.min(0) + vv.max(0)) / 2
-                    lights.append(
-                        dict(
-                            id=mesh["id"],
-                            pos=p.tolist(),
-                            color=[1.0, 0.78, 0.5],
-                            intensity=1.3,
-                            radius=2.0,
-                        )
-                    )
-        cfg = dict(ambient_lo=alo, ambient_hi=ahi, exposure=exposure, lights=lights[:64])
+            ob = objects[str(mesh['id'])]
+            light = emitter_light(ob['name'], mesh['id'] in emissive_ids) if mesh['role'] == 'furniture' else None
+            if light:
+                me = (mesh.get('material') or {}).get('emissive')
+                if me or mesh['id'] not in emissive_ids:
+                    mesh['emissive'] = tuple(.8 * c for c in (me or light['color']))
+                if not any(l['id'] == mesh['id'] for l in lights):
+                    vv = mesh['vertices']
+                    lights.append(dict(light, id=mesh['id'], pos=((vv.min(0)+vv.max(0))/2).tolist(), intensity=light['intensity']*mood['scale']))
+        lights, dropped, message = apply_light_budget(lights, meshes)
+        if message:
+            warnings.append(message)
+        cfg = dict(ambient_lo=mood['lo'], ambient_hi=mood['hi'], exposure=mood['exposure'], lights=lights)
         cameras = [dict(c, lighting=cfg) for c in cameras]
     if mirror_view:
         cameras = [dict(c, mirror_x=True) for c in cameras]
@@ -283,6 +273,7 @@ def render_exterior(
         exterior_profile=profile.summary(),
         interior_profile=None,
         warnings=profile.summary()["limitations"]
+        + warnings + coverage_warnings(assets.coverage)
         + (
             ["Approximate ambient/name-based lamps only; no game sunlight or shadows."]
             if lighting
@@ -298,6 +289,14 @@ def render_exterior(
         patch=None,
         room_context=False,
         approximate_tint_enabled=False,
+        mirror_view=mirror_view,
+        dye_mode=dye_mode,
+        display_gamma=display_gamma,
+        fixture_selections=layout.get("exteriorFixture", []),
+        fixture_materials_applied=bool(actors),
+        rough_room_finish={},
+        normal_specular_emission_applied=False,
+        walkability_verified=False,
     )
     if artifacts:
         result["artifacts"] = dict(

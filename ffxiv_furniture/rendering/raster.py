@@ -5,6 +5,8 @@ import time
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
 
+BANNER_HEIGHT=40
+
 
 def linear(v):return np.where(v<=.04045,v/12.92,((v+.055)/1.055)**2.4)
 def srgb(v):return np.where(v<=.0031308,v*12.92,1.055*np.maximum(v,0)**(1/2.4)-.055)
@@ -27,7 +29,7 @@ def finish(rgb,ids,zbuf,meshes,camera,path,size,near,display_gamma,start,input_f
     if display_gamma!=1.0:   # display lift fitted to app screenshot samples: dark/mid tones are brighter in the app (not a physical lighting model)
         covered=np.isfinite(zbuf);rgb[covered]=np.clip(255*(rgb[covered]/255.0)**display_gamma,0,255).astype(np.uint8)
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True);image=Image.fromarray(rgb);draw=ImageDraw.Draw(image)
-    draw.rectangle((0,0,width,40),fill='#182029')
+    draw.rectangle((0,0,width-1,BANNER_HEIGHT-1),fill='#182029')
     try:font=ImageFont.truetype('C:/Windows/Fonts/msjh.ttc',16)
     except OSError:font=ImageFont.load_default()
     draw.text((10,10),'Native mesh / Base texture preview - approximate lighting, NOT app render',font=font,fill='white')
@@ -49,8 +51,8 @@ def finish(rgb,ids,zbuf,meshes,camera,path,size,near,display_gamma,start,input_f
         Image.fromarray(ids).save(id_path);np.save(depth_path,zbuf.astype(np.float32))
         artifacts.update(ids=str(id_path.resolve()),depth=str(depth_path.resolve()))
     return {'image':str(path.resolve()),**artifacts,'seconds':time.perf_counter()-start,
-        'input_triangles':input_faces,'near_clipped_triangles':clipped_faces,'visible_triangle_updates':updates,
-        'textured_triangle_updates':textured_updates,'visible_object_pixels':{str(i):int(n) for i,n in zip(*np.unique(ids,return_counts=True)) if i},
+        'input_triangles':input_faces,'near_clipped_triangles':clipped_faces,
+        'visible_object_pixels':{str(i):int(n) for i,n in zip(*np.unique(ids[BANNER_HEIGHT:],return_counts=True)) if i},
         'camera':camera,'size':list(size),'near_plane':near}
 
 

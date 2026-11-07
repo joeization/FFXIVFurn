@@ -14,6 +14,8 @@ from .assets import Assets, DecodedAssetCache
 from ..config import source_path, catalog_path
 from .native import ROOT
 from .raster import render
+from .common import validate_cameras, load_fallback_colours, coverage_warnings
+from .lighting import resolve_mood, emitter_light, apply_light_budget
 
 from ..geometry_mesh import read_static_mesh_triangles
 from ..housing import validate_layout_budget
@@ -86,6 +88,7 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
     layout_path may also be an in-memory layout dict. image_prefix namespaces files
     in a shared directory; overwrite is reserved for regenerating named cache images.
     """
+    if cameras is not None:validate_cameras(cameras)
     auto_overview=cameras is None;start=time.perf_counter();out=Path(output_dir)
     if image_prefix is not None and (not isinstance(image_prefix,str) or not re.fullmatch(r'[A-Za-z0-9_-]+',image_prefix)):
         raise ValueError('image_prefix must contain only ASCII letters, numbers, underscores or hyphens')
@@ -126,10 +129,7 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
                 stain={r['Name']:((int(r['Color'])>>16)&255,(int(r['Color'])>>8)&255,int(r['Color'])&255) for r in csv.DictReader(stain_file) if r['Color']!='0'}
             try:dyes={iid:stain[name] for iid,name in db.execute('SELECT item_id,dye_name FROM item_default_dye') if name in stain}
             except sqlite3.OperationalError:warnings.append('item_default_dye table missing: no default dyes applied (run scripts/fill_default_dye.py)')
-        fallback={}
-        try:
-            for iid,hx in db.execute("SELECT item_id,c1_hex FROM item_colors WHERE c1_hex IS NOT NULL"): fallback[iid]=hx   # measured where available, estimated (est_from) for untextured meshes; never a neutral grey
-        except sqlite3.OperationalError:pass
+        fallback=load_fallback_colours(db,warnings)
         assets=Assets(records,ROOT/'outputs/render-pipeline/cache',dyes=dyes,fallback_colours=fallback,mi_tint=(dye_mode=='mi'),resource_cache=_RESOURCE_CACHE)
         for index,item in enumerate(items,1):
             if item.get('attachments'):raise ValueError('Nonempty attachments require an explicit transform policy; not silently omitted')
@@ -197,6 +197,12 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             if rec is not None: room_records.append(('bs-'+name,rec))
             elif name=='floor': bs_synth_floor=True   # Medium: shared BasementFloor mesh does not parse; synthesise from the outline
         warnings.append(f'Basement context: {house_size} basement meshes translated -7 m (map actor z); not app-verified.')
+    if upper_context and house_size in ('Small','Apartment'):
+        warnings.append(f'{house_size}: no upper level; upper context omitted.')
+        upper_context=False
+    if basement_context and house_size=='Apartment':
+        warnings.append('Apartment: no basement level; basement context omitted.')
+        basement_context=False
     if room_context and upper_context and interior:
         for name in ('floor','room-frame','ceiling','walls','pillars'):
             room_records.append(('up-'+name,interior.record(name,'upper')))
@@ -208,8 +214,11 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
         from .house_materials import average_color,fixture_texture
         from . import native
         fx=layout.get('interiorFixture',[])
-        floor_c,floor_p=average_color('Floor',fixtures=fx);wall_c,wall_p=average_color('Wall',fixtures=fx)
-        finish={'floor':(floor_c,floor_p),'wall':(wall_c,wall_p)}
+        for kind,key in (('Floor','floor'),('Wall','wall')):
+            try:finish[key]=average_color(kind,fixtures=fx)
+            except (ValueError,OSError,KeyError) as error:
+                warnings.append(f'Room finish unavailable ({error}); using neutral fallback for {kind}.')
+                finish[key]=([.4,.35,.3] if kind=='Floor' else [.6,.55,.5],{'unavailable':str(error)})
         try:
             textures={'floor':fixture_texture('Floor',fx),'walls':fixture_texture('Wall',fx)}
             if interior:
@@ -221,12 +230,18 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             if basement_context:
                 for key,kind in (('bs_floor','Floor'),('bs_walls','Wall')):
                     try:textures[key]=fixture_texture(kind,fx,level='Basement')
-                    except (ValueError,FileNotFoundError):textures[key]=textures['floor' if kind=='Floor' else 'walls']
+                    except (ValueError,FileNotFoundError) as error:
+                        original=textures['floor' if kind=='Floor' else 'walls']
+                        textures[key]={**original,'provenance':{**original['provenance'],'substituted_from':'Ground Floor'}}
+                        warnings.append(f'{key}: fixture unavailable ({error}); substituting Ground Floor finish.')
                 if 'ceiling' in textures: textures['bs_ceiling']=textures['ceiling']
             if upper_context:
                 for key,kind in (('upper_floor','Floor'),('upper_walls','Wall')):
                     try:textures[key]=fixture_texture(kind,fx,level='Upper Floor')
-                    except (ValueError,FileNotFoundError):textures[key]=textures['floor' if kind=='Floor' else 'walls']
+                    except (ValueError,FileNotFoundError) as error:
+                        original=textures['floor' if kind=='Floor' else 'walls']
+                        textures[key]={**original,'provenance':{**original['provenance'],'substituted_from':'Ground Floor'}}
+                        warnings.append(f'{key}: fixture unavailable ({error}); substituting Ground Floor finish.')
                 if 'ceiling' in textures: textures['upper_ceiling']=textures['ceiling']
             warnings.append('Room finish: floor/wall meshes use the chosen Ground Floor flooring/wallpaper albedo tiled by the native UVs; ceiling uses native MI_Ceiling; frame/pillars/stairs use their own native Base textures (no normal/specular/lighting, no tint). Wall/ceiling fixture-to-mesh mapping is inferred, not verified in the app.')
         except (ValueError,FileNotFoundError,KeyError,OSError) as error:
@@ -281,7 +296,9 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
         _ext={f['type']:f for f in layout.get('exteriorFixture',[])}
         for _kind,_cat,_places in _native_fixtures:
             _f=_ext.get(_kind)
-            if not _f:continue
+            if not _f:
+                warnings.append(f'Native {_kind} not drawn: no {_kind} fixture selected.')
+                continue
             try:
                 from ..geometry import read_static_mesh_bounds
                 _stem=''.join(_f['name'].replace('(','0x28').replace(')','0x29').split())
@@ -371,7 +388,7 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             _v=np.asarray(_vs,float);_fid=allocate_render_id();_tex=textures.get('bs_floor') or textures.get('floor')
             _mat={'texture':_tex['texture'],'tint':None} if _tex else None
             meshes.append({'id':_fid,'vertices':_v,'triangles':np.asarray(_ts),'uv':_v[:,:2]*0.175,'material':_mat,'role':'floor',**({} if _mat else {'flat_color':finish['floor'][0] if finish else [0.4,0.35,0.3]})})
-            objects[str(_fid)]={'instance_id':'bs-floor-synthetic','note':'basement floor synthesised from the sliced native outline (shared BasementFloor mesh unparseable)'}
+            objects[str(_fid)]={'instance_id':'bs-floor-synthetic','note':'basement floor synthesised from the sliced native outline (shared BasementFloor mesh unparseable)',**({'texture':_tex['provenance']} if _tex else {})}
     if room_context and floor_record is None and 'footprint' in profile:
         # Apartment has no floor mesh: synthesize the footprint rectangle (UV 0.175/m, the scale measured on the Medium floor) with the chosen flooring albedo.
         _rec=find(profile['footprint']);(x0,y0,_),(x1,y1,_)=_rec['local_min_m'],_rec['local_max_m']
@@ -389,7 +406,7 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             for g,mat in parts:
                 meshes.append({'id':stair_id,'vertices':world,'triangles':mesh['triangles'][g['first_triangle']:g['first_triangle']+g['triangle_count']],'uv':mesh['uv'],'material':mat,'role':'enclosure' if 'Ceiling' in sname else 'stair',   # stairwell ceiling is part of the shell: cutaway plan views must remove it
                                **({} if mat is not None and mat.get('texture') is not None else {'flat_color':[0.59,0.46,0.35]})})
-            label={'Stairs':'stair-up','Stairs2_9':'stair-down','Railing':'railing-upper','Railing2_2':'railing-ground'}.get(sname,sname.lower())
+            label={'Stairs':'stair-up','Stairs2_9':'stair-down','Railing':'railing-upper','Railing2_2':'railing-ground','MainStairs':'stair-up','BasementStairs':'stair-down','GroundRailing':'railing-ground','UpperRailing':'railing-upper'}.get(sname,sname.lower())
             objects[str(stair_id)]={'instance_id':label,'source_actor':sname,'decoded_actor_transform':a,'mesh':srec['source'],'mesh_sha256':srec['source_sha256'],'material_slots_textured':sum(1 for _,m in parts if m and m.get('texture') is not None),'material_slots':len(parts)}
         warnings.append('Stairs/railings use shared native component defaults or named style overrides, including full negative scale; no screenshot overrides. App navigation not verified.')
     # ---- ceiling light fixture mesh (hangs from the ceiling at the room centre: position inferred, not verified in the app) + lighting model
@@ -405,34 +422,29 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
           if room_context and _fx is not None:
               try:
                   from ..geometry import read_static_mesh_bounds
-                  folder=source_path('materials')/'HouseAssets/CeilingLight'/''.join(_fx['name'].split())
+                  from .house_materials import fixture_folder
+                  folder=source_path('materials')/'HouseAssets/CeilingLight'/fixture_folder(None,'CeilingLight',_fx)
                   lrec=read_static_mesh_bounds(folder/(folder.name+'.uexp'));lrec['item_id']=-77
                   lassets=Assets([lrec],ROOT/'outputs/render-pipeline/cache',resource_cache=_RESOURCE_CACHE);fixture_asset_loaders.append(lassets);lmesh=lassets.load(-77);lid=allocate_render_id()
                   lv=lmesh['vertices']+np.array([_lx,_ly,_lz])
                   for g in lmesh['groups']:
                       mat=lmesh['materials'][g['material_index']] if g['material_index']>=0 else None
                       meshes.append({'id':lid,'vertices':lv,'triangles':lmesh['triangles'][g['first_triangle']:g['first_triangle']+g['triangle_count']],'uv':lmesh['uv'],'material':mat,'role':'ceiling_light','emissive':(0.5,0.4,0.25) if lighting else (0,0,0),**({} if mat is not None and mat.get('texture') is not None else {'flat_color':[0.8,0.7,0.5]})})
-                  objects[str(lid)]={'instance_id':'ceiling-light-'+_lvl.split()[0].lower()+(f'-{_si+1}' if _si else ''),'name':_fx['name'],'item_id':_fx.get('itemId'),'position_note':f'hangs at ({_lx:g},{_ly:g},{_lz:g}) from the profile/map ceiling-light positions; not app-verified'}
-                  light_sources.append(_lz)
+                  objects[str(lid)]={'instance_id':'ceiling-light-'+_lvl.split()[0].lower()+f'-{_si+1}','name':_fx['name'],'item_id':_fx.get('itemId'),'position_note':f'hangs at ({_lx:g},{_ly:g},{_lz:g}) from the profile/map ceiling-light positions; not app-verified'}
+                  light_sources.append((lid,_lx,_ly,_lz))
               except Exception as error:warnings.append(f'Ceiling light mesh ({_lvl}) not drawn ({type(error).__name__}: {error})')
     lighting_cfg=None
     if lighting:
-        MOODS={'day':dict(lo=(.45,.44,.42),hi=(.75,.78,.85),exposure=1.3,scale=.5),'dusk':dict(lo=(.10,.09,.10),hi=(.22,.22,.28),exposure=1.25,scale=1.0),'night':dict(lo=(.04,.04,.07),hi=(.08,.09,.15),exposure=1.4,scale=1.2)}
-        mood=MOODS['dusk' if lighting in (True,'warm') else lighting] if isinstance(lighting,(str,bool)) else lighting
-        EMIT=re.compile(r'lamp|lantern|chandelier|candle|brazier|fire|torch|sconce|pendant|hearth|stove|bonfire|flame|illuminat|glow|lighting|neon|\blight\b',re.I)
-        boxes={}
+        mood=resolve_mood(lighting)
+        boxes={};emissive_ids={m['id'] for m in meshes if (m.get('material') or {}).get('emissive')}
         for m in meshes:
-            if m['role']=='furniture' and EMIT.search(objects[str(m['id'])]['name']):
+            if m['role']=='furniture' and emitter_light(objects[str(m['id'])]['name'],m['id'] in emissive_ids):
                 v=np.asarray(m['vertices']);b=boxes.setdefault(m['id'],[v.min(0),v.max(0)]);b[0]=np.minimum(b[0],v.min(0));b[1]=np.maximum(b[1],v.max(0))
         lights=[];emit={}
         for oid,(lo,hi) in boxes.items():
-            nm=objects[str(oid)]['name'].lower();c=(lo+hi)/2;pos=[float(c[0]),float(c[1]),float(lo[2]+.7*(hi[2]-lo[2]))]
-            if re.search(r'fire|brazier|hearth|bonfire|stove|flame',nm):col,inten,rad=(1.0,.55,.25),2.2,1.9
-            elif re.search(r'chandelier|pendant',nm):col,inten,rad=(1.0,.82,.55),2.2,3.2
-            elif 'candle' in nm:col,inten,rad=(1.0,.7,.4),.7,1.0
-            elif 'wall' in nm or 'sconce' in nm:col,inten,rad=(1.0,.75,.45),1.4,1.7
-            else:col,inten,rad=(1.0,.78,.5),1.3,1.5
-            lights.append({'pos':pos,'color':list(col),'intensity':inten*mood['scale'],'radius':rad});emit[oid]=tuple(.8*x for x in col)
+            c=(lo+hi)/2;pos=[float(c[0]),float(c[1]),float(lo[2]+.7*(hi[2]-lo[2]))]
+            light=emitter_light(objects[str(oid)]['name'],oid in emissive_ids)
+            lights.append({**light,'id':oid,'pos':pos,'intensity':light['intensity']*mood['scale']});emit[oid]=tuple(.8*x for x in light['color'])
         # Material-driven glow first: objects with whole-slot emissive masters glow only on those slots (bulb/flame, not the lamp body);
         # objects without one keep the name-based whole-object glow.
         slot_glow={m['id'] for m in meshes if (m.get('material') or {}).get('emissive')}
@@ -440,8 +452,10 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
             me=(m.get('material') or {}).get('emissive')
             if me:m['emissive']=tuple(.8*float(c) for c in me)
             elif m['id'] in emit and m['id'] not in slot_glow:m['emissive']=emit[m['id']]
-        for _cz in light_sources:lights.append({'pos':[0.0,0.0,_cz-1.2],'color':[1.0,.85,.6],'intensity':1.5*mood['scale'],'radius':4.5})
-        lights.sort(key=lambda l:-l['intensity']*l['radius']);lighting_cfg={'ambient_lo':list(mood['lo']),'ambient_hi':list(mood['hi']),'exposure':mood['exposure'],'lights':lights[:64]}
+        for lid,lx,ly,cz in light_sources:lights.append({'id':lid,'pos':[lx,ly,cz-1.2],'color':[1.0,.85,.6],'intensity':1.5*mood['scale'],'radius':4.5})
+        lights,dropped,budget_warning=apply_light_budget(lights,meshes)
+        if budget_warning:warnings.append(budget_warning)
+        lighting_cfg={'ambient_lo':list(mood['lo']),'ambient_hi':list(mood['hi']),'exposure':mood['exposure'],'lights':lights}
         warnings.append(f'Lighting: {len(lights)} point lights (lamps/lanterns/fires from furniture names + ceiling fixture), hemisphere ambient, wrap diffuse, NO shadows, no specular/normal maps, no GI, not the game shader. Approximate mood only.')
     # Exact triangle projection membership, not furniture AABB corners; this is not navigation.
     from shapely.geometry import box
@@ -494,14 +508,15 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
         # DEFAULT_CAMERAS were placed for the Medium footprint only; frame other sizes from the measured floor bounds.
         lo=np.asarray(floor.bounds[:2]);hi=np.asarray(floor.bounds[2:]);c=(lo+hi)/2;w,dp=hi-lo;r=max(w,dp)
         cameras=[{'name':'overview','position':[c[0]+.9*r,c[1]+.9*r,.9*r],'target':[c[0],c[1],0],'fov':70,'cutaway':True},
-                 {'name':'entry','position':[c[0],hi[1]+.5,1.65],'target':[c[0],c[1],1.0],'fov':80},
+                 {'name':'entry','position':[c[0],hi[1]-1.0,1.65],'target':[c[0],c[1],1.0],'fov':80},
                  {'name':'west','position':[c[0]+.1*w,c[1],1.65],'target':[lo[0],c[1]-.2*dp,1.0],'fov':80},
                  {'name':'east','position':[c[0]-.1*w,c[1],1.65],'target':[hi[0],c[1]-.2*dp,1.0],'fov':80}]
         warnings.append(f'{house_size}: cameras auto-framed from measured floor bounds, not the Medium design cameras')
     else:cameras=DEFAULT_CAMERAS if cameras is None else cameras
     # Cutaway views are sectioned: stairs (up to 8.5 m tall) would hide most of the room, so parts above SECTION_Z are not drawn there.
     if view_names:cameras=[c for c in cameras if c.get('name') in view_names]   # render only the views asked for (every view costs minutes on a full room)
-    cameras=[{**c,'cut_stairs_z':SECTION_Z} if c.get('cutaway') and 'cut_stairs_z' not in c else c for c in cameras]
+    validate_cameras(cameras)
+    cameras=[{**c,'cut_stairs_z':SECTION_Z+7.0*round(float(c['target'][2])/7.0)} if c.get('cutaway') and 'cut_stairs_z' not in c else c for c in cameras]
     if auto_overview and not three_view and any(c.get('name')=='overview' for c in cameras):
         # pick the corner view (elevated, looking at the floor centre) that shows the most furniture pixels; scores come from small test renders
         import tempfile
@@ -533,6 +548,7 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
     if artifacts:snapshot.write_bytes(snapshot_data)
     for i,camera in enumerate(cameras):
         view=render(meshes,camera,image_paths[i],size=size,approximate_tint=approximate_tint,display_gamma=1.0 if lighting_cfg else display_gamma,labels=labels,debug_buffers=debug_buffers);views.append(view)
+    warnings.extend(coverage_warnings(assets.coverage))
     textured=sum(x['textured_slots'] for x in assets.coverage);slots=sum(x['material_slots'] for x in assets.coverage)
     native_material_diagnostics:dict[str,object]={
         'scope':'native decode only; decoded entries, not placement counts or a full-library scan; room texture overrides are not effective-material coverage',

@@ -12,9 +12,26 @@ LEGACY = source_path('materials') / 'HouseAssets'
 KIND = {'Floor': 'Flooring', 'Wall': 'Wallpaper'}
 
 
+def fixture_folder(db, category, fixture):
+    """Resolve catalog-native folder spelling; only use the encoded name as fallback."""
+    if db is not None:
+        row = db.execute('SELECT asset_key FROM house_materials WHERE category=? AND name=?',
+                         (category, fixture['name'])).fetchone()
+        if row:
+            return row[0].rsplit('/', 1)[-1]
+    import re
+    encoded = fixture['name'].replace('&', '0x26').replace('(', '0x28').replace(')', '0x29').replace("'", '_')
+    compact = ''.join(encoded.split())
+    root = LEGACY / category
+    if root.is_dir():
+        matches = [p.name for p in root.iterdir() if p.is_dir() and p.name.casefold() == compact.casefold()]
+        if len(matches) == 1:
+            return matches[0]
+    return compact
+
+
 def folder_name(display):
-    """'Glade Flooring' -> 'GladeFlooring' (folder names are display names without spaces; verified on disk)."""
-    return ''.join(display.split())
+    return fixture_folder(None, '', {'name': display})
 
 
 def average_color(kind, fixtures=(), level='Ground Floor'):
@@ -22,7 +39,7 @@ def average_color(kind, fixtures=(), level='Ground Floor'):
     chosen = next((f for f in fixtures if f.get('type') == kind and f.get('level') == level), None)
     if chosen is None:
         raise ValueError(f'No {kind} fixture on {level}')
-    folder = LEGACY / KIND[kind] / folder_name(chosen['name'])
+    folder = LEGACY / KIND[kind] / fixture_folder(None, KIND[kind], chosen)
     textures = sorted(folder.glob('*_d.uasset'))
     if not textures:
         raise FileNotFoundError(f'Extract {folder} first (retoc to-legacy --filter {folder.name}); not guessing a colour')
@@ -36,7 +53,7 @@ def fixture_texture(kind, fixtures=(), level='Ground Floor'):
     """Albedo (`_d`) texture of the wallpaper/floor chosen on `level` as RGBA uint8, tiled by the room mesh UVs. Rough: no normal/specular/tint."""
     chosen = next((f for f in fixtures if f.get('type') == kind and f.get('level') == level), None)
     if chosen is None: raise ValueError(f'No {kind} fixture on {level}')
-    folder = LEGACY / KIND[kind] / folder_name(chosen['name'])
+    folder = LEGACY / KIND[kind] / fixture_folder(None, KIND[kind], chosen)
     textures = sorted(folder.glob('*_d.uasset'))
     if not textures: raise FileNotFoundError(f'Extract {folder} first; not guessing a texture')
     image, meta = decode_texture(textures[0])

@@ -23,7 +23,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ToolCallError(RuntimeError):
-    pass
+    def __init__(self, message):
+        super().__init__(message)
+        self.payload = None
+        # FastMCP may prepend "Error executing tool ...:" to the JSON error.
+        text = str(message)
+        for i, ch in enumerate(text):
+            if ch != '{': continue
+            try: value, _ = json.JSONDecoder().raw_decode(text[i:])
+            except json.JSONDecodeError: continue
+            if isinstance(value, dict) and isinstance(value.get('error'), dict):
+                self.payload = value['error']; break
 
 
 class DecoClient:
@@ -37,32 +47,60 @@ class DecoClient:
         exe = python or (ROOT / '.venv/Scripts/python.exe' if (ROOT / '.venv/Scripts/python.exe').exists() else Path(sys.executable))
         sess_dir = ROOT / 'outputs/deco-sessions' / str(session); sess_dir.mkdir(parents=True, exist_ok=True)
         self._err = (sess_dir / 'stderr.log').open('a', encoding='utf-8')   # one server log per session, appended
-        self._p = subprocess.Popen([str(exe), '-X', 'utf8', '-I', 'scripts/deco_mcp_client.py', 'interactive'], cwd=ROOT, env=env,
-                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._err,
-                                   text=True, encoding='utf-8', bufsize=1)
+        self._closed = False
+        try:
+            self._p = subprocess.Popen([str(exe), '-X', 'utf8', '-I', 'scripts/deco_mcp_client.py', 'interactive'], cwd=ROOT, env=env,
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._err,
+                                       text=True, encoding='utf-8', bufsize=1)
+        except BaseException:
+            self._err.close()
+            raise
         assert self._p.stdin is not None and self._p.stdout is not None
         self._in, self._out = self._p.stdin, self._p.stdout
         self._q = queue.Queue(); self._n = 0
-        threading.Thread(target=self._pump, daemon=True).start()
+        self._reader = threading.Thread(target=self._pump, daemon=True)
+        self._reader.start()
         deadline = time.time() + ready_timeout
-        while True:
-            line = self._next(deadline)
-            if '"ready"' in line:
-                self.pid = json.loads(line).get('client_pid'); break
+        try:
+            while True:
+                line = self._next(deadline)
+                if '"ready"' in line:
+                    self.pid = json.loads(line).get('client_pid'); break
+        except BaseException:
+            self.close(timeout=2)
+            raise
 
     def _pump(self):
-        for line in self._out: self._q.put(line)
+        try:
+            for line in self._out: self._q.put(line)
+        finally:
+            self._q.put(None)
+
+    def _exited(self):
+        path = Path(self._err.name)
+        tail = path.read_text(encoding='utf-8', errors='replace')[-4000:]
+        return ToolCallError(f'MCP client exited with code {self._p.poll()}\n{tail}')
 
     def _next(self, deadline):
         while True:
-            try: return self._q.get(timeout=max(0.1, min(5, deadline - time.time())))
+            try:
+                line = self._q.get(timeout=max(0.01, min(0.1, deadline - time.time())))
+                if line is None:
+                    self._p.wait(timeout=2)
+                    raise self._exited()
+                return line
             except queue.Empty:
-                if self._p.poll() is not None: raise ToolCallError(f'MCP client exited with code {self._p.returncode}')
+                if self._p.poll() is not None: raise self._exited()
                 if time.time() > deadline: raise TimeoutError('MCP client did not answer in time')
 
     def __call__(self, tool, arguments=None, timeout=600):
+        if self._closed: raise ToolCallError('MCP client closed')
+        if self._p.poll() is not None: raise self._exited()
         self._n += 1; rid = f'r{self._n}'
-        self._in.write(json.dumps({'id': rid, 'tool': tool, 'arguments': arguments or {}}) + '\n'); self._in.flush()
+        try:
+            self._in.write(json.dumps({'id': rid, 'tool': tool, 'arguments': arguments or {}}) + '\n'); self._in.flush()
+        except OSError as error:
+            raise self._exited() from error
         deadline = time.time() + timeout
         while True:
             try: msg = json.loads(self._next(deadline))
@@ -90,11 +128,16 @@ class DecoClient:
         return self._p.returncode
 
     def close(self, timeout=60):
+        if self._closed: return self._p.returncode
+        self._closed = True
         if self._p.poll() is None:
             try:
                 self._in.write('quit\n'); self._in.flush(); self._p.wait(timeout=timeout)
             except (OSError, subprocess.TimeoutExpired):
                 self._p.kill(); self._p.wait()
+        self._in.close()
+        self._reader.join(timeout=2)
+        self._out.close()
         self._err.close()
         return self._p.returncode
 

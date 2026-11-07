@@ -5,7 +5,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 import sqlite3
 from contextlib import closing
 from PIL import Image
@@ -19,23 +18,27 @@ class SchematicPlanningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             p = subprocess.run([sys.executable, '-X', 'utf8', str(ROOT/'scripts/layout_schematic.py'), str(LAYOUT), '--out', folder], cwd=ROOT, capture_output=True, text=True, check=True)
             report = json.loads(p.stdout)
-            self.assertEqual(Path(report['image']).suffix, '.svg')
-            root = ET.parse(report['image']).getroot()
-            self.assertEqual(root.tag, '{http://www.w3.org/2000/svg}svg')
-            self.assertEqual(root.get('viewBox'), '0 0 3200 1800')
-            ns = {'s': 'http://www.w3.org/2000/svg'}
-            self.assertGreater(len(root.findall('.//s:polygon', ns)), 20)
-            texts = [t.text or '' for t in root.findall('.//s:text', ns)]
-            self.assertTrue(any('SCHEMATIC ONLY' in t for t in texts))
-            self.assertFalse(report['furniture_index'])
-
-    def test_jpg_format_still_available(self):
-        with tempfile.TemporaryDirectory() as folder:
-            p = subprocess.run([sys.executable, '-X', 'utf8', str(ROOT/'scripts/layout_schematic.py'), str(LAYOUT), '--out', folder, '--format', 'jpg'], cwd=ROOT, capture_output=True, text=True, check=True)
-            report = json.loads(p.stdout)
             self.assertEqual(Path(report['image']).suffix, '.jpg')
             with Image.open(report['image']) as image:
-                self.assertEqual((image.format, image.height), ('JPEG', 1800))
+                self.assertEqual((image.format, image.size), ('JPEG', (1920, 1080)))   # 3200x1800 canvas saved at the default 0.6
+            self.assertFalse(report['furniture_index'])
+
+M_LAYOUT = ROOT/'outputs/deco-sessions/m-hingan-ryokan/m-hingan-ryokan-r27.json'
+
+@unittest.skipUnless(M_LAYOUT.exists(), 'Local three-floor example absent')
+class ThreeFloorSchematicTests(unittest.TestCase):
+    def test_every_floor_gets_a_panel_on_the_canvas(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p = subprocess.run([sys.executable, '-X', 'utf8', str(ROOT/'scripts/layout_schematic.py'), str(M_LAYOUT), '--out', folder], cwd=ROOT, capture_output=True, text=True, check=True)
+            report = json.loads(p.stdout)
+            self.assertEqual(set(report['floors']), {'ground', 'upper', 'basement'})
+            self.assertEqual(sum(report['floors'].values()), report['items'])
+            with Image.open(report['image']) as image:
+                w, h = image.size
+                # third panel (x 3270..4770) must be inside the canvas and carry drawing, not blank paper
+                self.assertGreaterEqual(w, round(0.6 * (65 + 3 * 1500 + 2 * 70)))   # default 0.6 output scale
+                crop = image.convert('L').crop((1980, 180, 2820, 840))
+                self.assertGreater(len(set(crop.getdata())), 20)
 
 class SchematicFloorAssignmentTests(unittest.TestCase):
     def test_medium_upper_is_separate_from_elevated_ground_furniture(self):
