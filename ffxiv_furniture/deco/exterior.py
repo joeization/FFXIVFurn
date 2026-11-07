@@ -4,7 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 import json, math, os, hashlib
 from shapely.geometry import Polygon
-from .core import Catalog, Session, Room, DecoError, DB_PATH, quat_to_yaw
+from .core import Catalog, Session, Room, DecoError, DB_PATH, quat_to_yaw, prune_old_exports
 from ..exteriors import (
     ExteriorProfile,
     KINDS,
@@ -283,6 +283,31 @@ class ExteriorSession(Session):
         self._save()
         return self.status()
 
+    def refresh_indoor(self, layout_path):
+        """Replace every non-yard field (interior furniture/fixtures, metadata) with those of a newer export of the same house,
+        keeping this session's yard furniture, fixture selections and exteriorScale. Use when the interior changed after the yard
+        session was seeded, instead of opening a new session and replaying the yard. Not part of undo history; call again with
+        the previous file to go back."""
+        path = Path(layout_path)
+        try:
+            raw = path.read_bytes()
+            layout = json.loads(raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig"))
+        except (OSError, ValueError, UnicodeError) as error:
+            raise DecoError("BAD_INPUT", f"Cannot read layout: {error}") from error
+        if not isinstance(layout, dict) or layout.get("houseSize") != self.room.house_size:
+            raise DecoError("BAD_INPUT", f"Layout houseSize {layout.get('houseSize') if isinstance(layout, dict) else None!r} does not match this {self.room.house_size} yard")
+        if self.seed is None:
+            raise DecoError("IO_ERROR", "Session has no seed")
+        keep = {k: v for k, v in self.seed.items() if k.startswith("exterior")}
+        old = self.seed
+        self.seed = {k: deepcopy(v) for k, v in layout.items() if not k.startswith("exterior")}
+        self.seed.update(keep)
+        changed = sorted(k for k in set(old) | set(self.seed) if not k.startswith("exterior") and old.get(k) != self.seed.get(k))
+        self.revision += 1
+        self._save()
+        return dict(ok=True, revision=self.revision, source=str(path.resolve()), changed_fields=changed,
+                    interior_items=len(self.seed.get("interiorFurniture", [])))
+
     def status(self):
         result = super().status()
         result.update(scope="exterior")
@@ -351,6 +376,7 @@ class ExteriorSession(Session):
             scope="exterior",
             layout=dict(path=str(p), sha256=hashlib.sha256(data).hexdigest(), bytes=len(data)),
             instance_map=str(mapping),
+            removed=prune_old_exports(self.dir, safe, self.revision),
             item_count=len(self.instances),
             encoding="UTF-16LE-BOM",
             note="Native yard preview/export; app import not verified.",

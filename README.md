@@ -83,7 +83,7 @@ Once data is ready, configure a session and seed using the [MCP guide](docs/mcp.
 - Interiors: Small (ground floor and basement), Medium (ground and upper floors), Apartment (single floor). Large interior MCP is unsupported; Medium basements are not fully supported.
 - Yards: S/M/L; outdoor furniture, exterior walls, roofs, fences, doors/windows, roof/wall decorations, and placards. Select styles with `search_materials`/`set_exterior`.
 - Start with `status`/`inspect`. After editing, render and inspect the image before continuing. Numerical diagnostics are not aesthetic scores or proof of game collision behavior.
-- Normal renders save only PNGs in one `renders/` directory, with revisions distinguished by filename. JSON diagnostics require explicit opt-in. Session state, snapshots, and exports are unaffected.
+- Normal renders save only JPEGs in one `renders/` directory, with revisions distinguished by filename; only the newest two revisions are kept (`keep=true` files are never pruned) and `render_sheet` writes just the composite. JSON diagnostics require explicit opt-in. Session state, snapshots, and exports are unaffected.
 - OpenGL 3.3 is required; there is no CPU fallback. Glass is an approximate translucent pane and emission is per material slot; water/particles, reflections and game shadows are not rendered (use ReMakePlace for lighting); finishes are not guaranteed complete for every house type. Export success is not app-import acceptance.
 - Parsed meshes and material instances are memoised per server process (keyed by file size/mtime), so only the first render of a session pays the decode cost.
 

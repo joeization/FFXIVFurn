@@ -2,7 +2,7 @@
 
 Pure schematic: colored bounding footprints drawn from the layout's own
 transforms plus catalog-measured bounds. No game textures, meshes, or 3D
-rendering; nothing except the output PNG is written.
+rendering; nothing except the output plan (SVG by default, or JPEG with --format jpg) is written.
 
 View is mirrored horizontally by default (+X to the left, +Y up) to match the
 app as observed by the user, same convention as MCP renders. Doors and windows
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import collections
-import datetime
 import hashlib
 import json
 import math
@@ -221,6 +220,7 @@ def main() -> None:
     ap.add_argument("--no-labels", action="store_true")
     ap.add_argument("--index", action="store_true", help="Include an optional furniture inventory (omitted from planning views by default)")
     ap.add_argument("--no-mirror", action="store_true", help="Raw world axes (+X right) instead of the app-mirrored view")
+    ap.add_argument("--format", choices=("svg", "jpg"), default="svg", help="svg (default: vector, small, sharp) or jpg raster for image-only viewers")
     args = ap.parse_args()
 
     source = args.layout.resolve()
@@ -250,8 +250,15 @@ def main() -> None:
 
     W, H = 3200, 3080 if args.index else 1800
     panel_w, panel_h = 1500, 1340
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
+    if args.format == "svg":
+        try:
+            from svgdraw import SvgCanvas
+        except ImportError:
+            from scripts.svgdraw import SvgCanvas
+        img = d = SvgCanvas(W, H, PAPER)
+    else:
+        img = Image.new("RGB", (W, H), PAPER)
+        d = ImageDraw.Draw(img)
     f20, f23, f26, f32, f48 = font(20), font(23), font(26), font(32, True), font(48, True)
     title = source.stem.replace("_", " ").rstrip(" -0123456789.rR")
     d.text((80, 45), title.upper(), font=f48, fill=INK)
@@ -525,9 +532,11 @@ def main() -> None:
 
     out_dir = args.out or (source.parent / "renders")
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    out = out_dir / f"{source.stem}-schematic-{stamp}.png"
-    img.save(out)
+    out = out_dir / f"{source.stem}-schematic.{args.format}"   # one file per layout revision, rewritten in place
+    if args.format == "svg":
+        img.save(out)
+    else:
+        img.convert("RGB").save(out, "JPEG", quality=92)
 
     assert len(items) == len(layout["interiorFurniture"]) == sum(counts.values())
     if before is not None:

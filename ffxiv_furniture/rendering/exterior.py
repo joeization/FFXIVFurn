@@ -225,10 +225,10 @@ def render_exterior(
         cameras = [dict(c, mirror_x=True) for c in cameras]
     stem = image_prefix if image_prefix is not None else "view"
     prefix = image_prefix + "-" if image_prefix else ""
-    paths = [out / f"{stem}-{i+1:02d}.png" for i in range(len(cameras))]
+    paths = [out / f"{stem}-{i+1:02d}.jpg" for i in range(len(cameras))]
     if not overwrite:
         for path in paths:
-            candidates = [path.with_name(path.stem + "-labeled.png") if labels else path]
+            candidates = [path.with_name(path.stem + "-labeled.jpg") if labels else path]
             if debug_buffers:
                 candidates.extend(
                     [

@@ -39,6 +39,19 @@ class DecoError(Exception):
         }
 
 
+
+def prune_old_exports(folder, safe, revision):
+    """Delete earlier exports of the same name (`<safe>-r<N>.json` and its `.map.json`), keeping only revision `revision`.
+    Other names and app-written files (`.backup`, `.list.txt`) are untouched. Returns the removed file names."""
+    import re as _re
+    rx = _re.compile(r"^" + _re.escape(safe) + r"-r(\d+)(\.map)?\.json$")
+    removed = []
+    for p in Path(folder).iterdir():
+        mt = rx.match(p.name)
+        if p.is_file() and mt and int(mt.group(1)) != revision:
+            p.unlink(); removed.append(p.name)
+    return sorted(removed)
+
 def _rot(x, y, yaw_deg):
     a = math.radians(yaw_deg)
     c, s = math.cos(a), math.sin(a)
@@ -1765,6 +1778,11 @@ class Session:
                             owner_id=v["instance_id"],
                             surface_idx=s["idx"],
                             z_world=round(self.instances[v["instance_id"]]["pivot"][2] + s["z"], 3),
+                            # same centre place_on uses (offset_xy [0,0]), so props can be aimed without trial placements
+                            center_world=[
+                                round(self.instances[v["instance_id"]]["pivot"][k] + _rot((s["min"][0] + s["max"][0]) / 2, (s["min"][1] + s["max"][1]) / 2, self.instances[v["instance_id"]]["yaw"])[k], 3)
+                                for k in (0, 1)
+                            ],
                             size=[
                                 round(s["max"][0] - s["min"][0], 2),
                                 round(s["max"][1] - s["min"][1], 2),
@@ -1880,6 +1898,7 @@ class Session:
             revision=self.revision,
             layout=dict(path=str(p), sha256=hashlib.sha256(data).hexdigest(), bytes=len(data)),
             instance_map=str(m),
+            removed=prune_old_exports(self.dir, safe, self.revision),
             item_count=len(self.instances),
             encoding="UTF-16LE-BOM",
             note="valid JSON round-trip only; not verified by importing into ReMakePlace",

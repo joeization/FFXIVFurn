@@ -383,6 +383,21 @@ def set_exterior(
 
 
 @mcp.tool()
+def refresh_indoor(layout_path: str) -> dict:
+    """Exterior sessions only: replace the indoor payload (interior furniture/fixtures and other non-yard fields) with a newer
+    export of the same house, keeping this yard's furniture and exterior fixtures. Use after the interior changed, instead of a new
+    yard session plus replay. Not part of undo; call again with the older file to revert."""
+
+    def f():
+        s = _boot()
+        if not hasattr(s, "refresh_indoor"):
+            raise DecoError("BAD_INPUT", "refresh_indoor requires an exterior session (DECO_SCOPE=exterior)")
+        return s.refresh_indoor(layout_path)
+
+    return _wrap(f)
+
+
+@mcp.tool()
 def search_dyes(query: str = "", limit: int = 40) -> dict:
     """List housing dyes (name, hex, shade, metallic). query = part of a name, or '#rrggbb' to get the nearest housing dye. Only these colours exist in the app."""
 
@@ -681,8 +696,28 @@ def _camera(view, session):
     return c
 
 
-@mcp.tool()
-def render(
+_panel_mem = OrderedDict()
+_PANEL_MEM_LIMIT = 48
+
+
+def _prune_renders(out, keep_revisions=2):
+    """Delete renders/ files of all but the newest `keep_revisions` revisions (names r<N>-...). '-keep' files and anything
+    not named r<N>- (plans, schematics) are never touched."""
+    import re
+
+    rx = re.compile(r"^r(\d+)-")
+    files = []
+    for p in Path(out).iterdir():
+        mt = rx.match(p.name)
+        if p.is_file() and mt and "-keep" not in p.name:
+            files.append((int(mt.group(1)), p))
+    newest = set(sorted({r for r, _ in files})[-keep_revisions:])
+    for r, p in files:
+        if r not in newest:
+            p.unlink(missing_ok=True)
+
+
+def _render_impl(
     view: str | dict = "overview",
     width: int = 960,
     height: int = 640,
@@ -692,13 +727,10 @@ def render(
     mirror: bool = True,
     dye: str = "mi",
     diagnostics: bool = False,
+    keep: bool = False,
+    persist: bool = True,
 ) -> list:
-    """Render the CURRENT revision from a named view (see status.cameras) or a custom camera {position:[x,y,z], target:[x,y,z], fov, cutaway?}.
-    Saves PNGs in one renders/ directory, named by revision/view/settings hash; no per-render folders or JSON files by default.
-    Returns the PNG (inline) plus metadata in the tool response. diagnostics=true explicitly saves named diagnostic JSONs in that same directory.
-    Metadata cache is bounded and in memory; a server restart regenerates images/metadata when needed. labels=true overlays render-index numbers
-    (use the returned `visible` list to map numbers to instance ids). crop=[x,y,w,h] in pixels of the full image. lighting: 'dusk' (default, warm lamps on dim ambient), 'night', 'day', or 'off' (the old flat shading). mirror=true (default) flips the picture horizontally so left/right match the ReMakePlace app (user-verified: the app shows +x on the RIGHT when looking south; world coordinates and ids are unchanged; pass false for the raw projection). dye='mi' (default) uses each material's own Tint/FixedTint = the item's real default look; 'default' = the DB default dye (known wrong for many items); 'none' = raw textures. Foliage/opacity-mask materials are alpha-cut. Lit renders use point lights from lamps/lanterns/fires and the ceiling fixture; NO shadows. ~5-10 s per call.
-    """
+    """Shared by render (persist=True: write the JPEG, prune old revisions) and render_sheet (persist=False: keep the panel in memory)."""
     from PIL import Image as PILImage
 
     def f():
@@ -718,7 +750,7 @@ def render(
         raw = (
             json.dumps(lay, sort_keys=True)
             + json.dumps(cam, sort_keys=True)
-            + f"{scene_scope}-{width}x{height}{lighting}-labels={labels}-m{mirror}-d{dye}-diagnostics={diagnostics}"
+            + f"{scene_scope}-{width}x{height}{lighting}-labels={labels}-m{mirror}-d{dye}-diagnostics={diagnostics}-keep={keep}"
             + _renderer_version()
         )
         key = hashlib.sha256(raw.encode()).hexdigest()[:12]
@@ -727,13 +759,16 @@ def render(
             f"r{s.revision}-"
             + ("yard-" if scene_scope == "exterior" else "")
             + f'{cam["name"]}-{key}'
+            + ("-keep" if keep else "")
         )
         cache_key = (str(s.dir.resolve()), key)
         m = _render_cache.get(cache_key)
-        cache_hit = (
-            m is not None
-            and Path(m["views"][0]["image"]).is_file()
-            and all(Path(p).is_file() for p in m.get("artifacts", {}).values())
+        cache_hit = m is not None and (
+            (not persist and cache_key in _panel_mem)
+            or (
+                Path(m["views"][0]["image"]).is_file()
+                and all(Path(p).is_file() for p in m.get("artifacts", {}).values())
+            )
         )
         need_upper = bool(cam.get("upper")) or any(
             i["pivot"][2] + s.cat.item(i["item_id"])["lo"][2] >= 6.4 for i in s.instances.values()
@@ -765,6 +800,14 @@ def render(
                 db_path=getattr(getattr(s, "cat", None), "path", None),
             )
             _render_cache[cache_key] = m
+            if not persist:   # panel for a sheet: hold the pixels in memory, write nothing
+                _p = Path(m["views"][0]["image"])
+                _panel_mem[cache_key] = _p.read_bytes(); _p.unlink(missing_ok=True)
+                _panel_mem.move_to_end(cache_key)
+                while len(_panel_mem) > _PANEL_MEM_LIMIT:
+                    _panel_mem.popitem(last=False)
+            else:
+                _prune_renders(out)
         _render_cache.move_to_end(cache_key)
         while len(_render_cache) > _RENDER_CACHE_LIMIT:
             _render_cache.popitem(last=False)
@@ -773,9 +816,9 @@ def render(
         img = Path(v["image"])
         if crop:
             x, y, w, h = crop
-            cp = out / f'{prefix}-crop-{x}-{y}-{w}-{h}{"-labeled" if labels else ""}.png'
+            cp = out / f'{prefix}-crop-{x}-{y}-{w}-{h}{"-labeled" if labels else ""}.jpg'
             with PILImage.open(img) as full_image:
-                full_image.crop((x, y, x + w, y + h)).save(cp)
+                full_image.convert("RGB").crop((x, y, x + w, y + h)).save(cp, "JPEG", quality=90)
             img = cp
         ids = list(s.instances)
         vis = [
@@ -815,7 +858,103 @@ def render(
         )
         if diagnostics:
             meta["artifacts"] = m["artifacts"]
+        if not persist:
+            meta["image"] = None if cache_key in _panel_mem else str(img)
+            meta["mem_key"] = list(cache_key)
+            return [None, json.dumps(meta, ensure_ascii=False)]
         return [Image(path=str(img)), json.dumps(meta, ensure_ascii=False)]
+
+    return _wrap(f)
+
+@mcp.tool()
+def render(
+    view: str | dict = "overview",
+    width: int = 960,
+    height: int = 640,
+    labels: bool = False,
+    crop: list[int] | None = None,
+    lighting: str = "dusk",
+    mirror: bool = True,
+    dye: str = "mi",
+    diagnostics: bool = False,
+    keep: bool = False,
+) -> list:
+    """Render the CURRENT revision from a named view (see status.cameras) or a custom camera {position:[x,y,z], target:[x,y,z], fov, cutaway?}.
+    Saves JPEGs in one renders/ directory, named by revision/view/settings hash; no per-render folders or JSON files by default.
+    Only the newest two revisions' renders are kept on disk (older r<N>-* files are pruned automatically); keep=true marks a file
+    '-keep' so it is never pruned (use it for delivery images).
+    Returns the JPEG (inline) plus metadata in the tool response. diagnostics=true explicitly saves named diagnostic JSONs in that same directory.
+    Metadata cache is bounded and in memory; a server restart regenerates images/metadata when needed. labels=true overlays render-index numbers
+    (use the returned `visible` list to map numbers to instance ids). crop=[x,y,w,h] in pixels of the full image. lighting: 'dusk' (default, warm lamps on dim ambient), 'night', 'day', or 'off' (the old flat shading). mirror=true (default) flips the picture horizontally so left/right match the ReMakePlace app (user-verified: the app shows +x on the RIGHT when looking south; world coordinates and ids are unchanged; pass false for the raw projection). dye='mi' (default) uses each material's own Tint/FixedTint = the item's real default look; 'default' = the DB default dye (known wrong for many items); 'none' = raw textures. Foliage/opacity-mask materials are alpha-cut. Lit renders use point lights from lamps/lanterns/fires and the ceiling fixture; NO shadows. ~5-10 s per call.
+    """
+    return _render_impl(view, width, height, labels, crop, lighting, mirror, dye, diagnostics, keep=keep, persist=True)
+
+
+SHEET_TITLE_PX = 28
+
+
+@mcp.tool()
+def render_sheet(
+    views: list[dict],
+    cols: int = 2,
+    width: int = 800,
+    height: int = 534,
+    labels: bool = False,
+    lighting: str = "dusk",
+    mirror: bool = True,
+    dye: str = "mi",
+    keep: bool = False,
+) -> list:
+    """Render several views of the CURRENT revision and return ONE composite JPEG with each panel's label drawn above it,
+    so a multi-view review is one call and one image instead of a render per view plus local stitching.
+    views = [{label, view}] (1..12): view is a named camera (status.cameras) or a camera dict {position,target,fov,...}, exactly as in render.
+    Panels are rendered like render() (same width/height/labels/lighting/mirror/dye) but kept in an in-memory cache, not written; only the
+    sheet is saved in renders/ (old revisions pruned like render; keep=true marks it '-keep'). Returns the sheet plus per-panel metadata
+    (label, camera, cache_hit, the most visible instance ids).
+    """
+    import io
+    from PIL import Image as PILImage, ImageDraw, ImageFont
+
+    def f():
+        s = _boot()
+        if not isinstance(views, list) or not 1 <= len(views) <= 12:
+            raise DecoError("BAD_INPUT", "views needs 1..12 entries of {label, view}")
+        if not 1 <= int(cols) <= 4:
+            raise DecoError("BAD_INPUT", "cols must be 1..4")
+        for v in views:
+            if not isinstance(v, dict) or not isinstance(v.get("label"), str) or not v["label"].strip() or "view" not in v:
+                raise DecoError("BAD_INPUT", "each view needs a nonempty 'label' and a 'view' (camera name or dict)")
+        panels = []
+        for v in views:
+            res = _render_impl(v["view"], width, height, labels, None, lighting, mirror, dye, False, persist=False)
+            meta = json.loads(res[-1])
+            panels.append(dict(label=v["label"].strip(), image=meta["image"], mem_key=tuple(meta["mem_key"]), camera=meta["camera"],
+                               cache_hit=meta["cache_hit"], visible=[d["instance_id"] for d in meta["visible"][:12]]))
+        n = len(panels); c = min(int(cols), n); rows = (n + c - 1) // c
+        key = hashlib.sha256(json.dumps([(p["label"], list(p["mem_key"])) for p in panels] + [c], sort_keys=True).encode()).hexdigest()[:12]
+        out = s.dir / "renders"
+        out.mkdir(parents=True, exist_ok=True)
+        path = out / f"r{s.revision}-sheet-{key}{'-keep' if keep else ''}.jpg"
+        if not path.is_file():
+            sheet = PILImage.new("RGB", (c * width, rows * (height + SHEET_TITLE_PX)), "white")
+            draw = ImageDraw.Draw(sheet)
+            try:
+                font = ImageFont.truetype("C:/Windows/Fonts/msjh.ttc", 18)
+            except OSError:
+                font = ImageFont.load_default()
+            for i, p in enumerate(panels):
+                x, y = (i % c) * width, (i // c) * (height + SHEET_TITLE_PX)
+                draw.rectangle((x, y, x + width - 1, y + SHEET_TITLE_PX - 1), fill="#111111")
+                draw.text((x + 8, y + 4), p["label"], font=font, fill="white")
+                src = io.BytesIO(_panel_mem[p["mem_key"]]) if p["mem_key"] in _panel_mem else p["image"]
+                with PILImage.open(src) as im:
+                    sheet.paste(im.convert("RGB").resize((width, height)), (x, y + SHEET_TITLE_PX))
+            sheet.save(path, "JPEG", quality=90)
+            _prune_renders(out)
+        for p in panels:
+            p.pop("mem_key", None); p.pop("image", None)
+        meta = dict(ok=True, revision=s.revision, image=str(path), cols=c, rows=rows, panel_size=[width, height], panels=panels)
+        return [Image(path=str(path)), json.dumps(meta, ensure_ascii=False)]
 
     return _wrap(f)
 
@@ -830,6 +969,8 @@ def analyze_layout(
     """Read-only diagnostics of the CURRENT layout (facts, no pass/fail, never blocks edits): (1) reachability: area walkable at path_width_m from `start` (default the door),
     unreachable pockets and items with no access; (2) front clearance of seats/tall storage (fraction of a front_depth_m rectangle blocked by other items or the wall);
     (3) seat -> nearest-table facing error in degrees; (4) tall items floating 0.3-1.2 m off a wall or off the 0/90 deg axes; (5) covered floor fraction per west/centre/east third.
+    Also enclosures (rooms sealed by full-height partitions, with their door partitions) and wall_gaps: 3-60 cm slits between full-height
+    partitions/pillars/room wall that are too narrow to walk but leak a room that should be sealed, with the slit centre `at`.
     Overlap and tight spots are legal in FFXIV: treat numbers as hints, then LOOK at a render. Not covered: line of sight / focal point, style and colour (visual judgement).
     """
     from .analyze import analyze
@@ -839,6 +980,21 @@ def analyze_layout(
             _boot(), level, tuple(start) if start else None, path_width_m, front_depth_m
         )
     )
+
+
+@mcp.tool()
+def check_routes(routes: list[dict], width_m: float = 0.8, level: str | None = None) -> dict:
+    """Which furniture intrudes on named walking routes, e.g. door -> stair, gate -> door. routes = [{name, points:[[x,y],...]}] polylines;
+    each is a corridor width_m wide. Counts floor items whose body lies 0.12-2.0 m above the level floor (rugs, stepping stones and
+    overhead pieces ignored; door/sliding partitions use their measured opening). Returns per-route clear + blockers (instance_id,
+    overlap_m2). Facts only, bounding footprints not game collision; never blocks an edit."""
+    from .analyze import check_routes as _check
+
+    def f():
+        res = _check(_boot(), routes, width_m, level)
+        return dict(ok=True, revision=_sess.revision, all_clear=all(r["clear"] for r in res), routes=res)
+
+    return _wrap(f)
 
 
 @mcp.tool()

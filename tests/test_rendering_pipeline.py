@@ -36,11 +36,12 @@ class RenderTests(unittest.TestCase):
         for fn in (render,):
             for labels in (False,True):
                 with self.subTest(backend=fn.__name__,labels=labels), tempfile.TemporaryDirectory() as tmp:
-                    result=fn(mesh,camera,Path(tmp)/'view.png',size=(160,120),labels=labels)
+                    result=fn(mesh,camera,Path(tmp)/'view.jpg',size=(160,120),labels=labels)
                     files={f.name for f in Path(tmp).iterdir()}
-                    expected='view-labeled.png' if labels else 'view.png'
+                    expected='view-labeled.jpg' if labels else 'view.jpg'
                     self.assertEqual(files,{expected})
                     self.assertEqual(Path(result['image']).name,expected)
+                    with Image.open(result['image']) as im:self.assertEqual(im.format,'JPEG')
                     self.assertEqual('labeled' in result,labels)
                     self.assertNotIn('ids',result);self.assertNotIn('depth',result)
                     self.assertGreater(result['visible_object_pixels']['300'],0)
@@ -49,8 +50,8 @@ class RenderTests(unittest.TestCase):
         mesh=[{'id':300,'vertices':np.array([[-1,2,-1],[1,2,-1],[0,2,1]]),'triangles':[(0,1,2)],'role':'furniture'}]
         camera={'position':[0,0,0],'target':[0,1,0]}
         with tempfile.TemporaryDirectory() as tmp:
-            result=render(mesh,camera,Path(tmp)/'view.png',size=(160,120),labels=True,debug_buffers=True)
-            self.assertEqual({f.name for f in Path(tmp).iterdir()},{'view-labeled.png','view-ids.png','view-depth.npy'})
+            result=render(mesh,camera,Path(tmp)/'view.jpg',size=(160,120),labels=True,debug_buffers=True)
+            self.assertEqual({f.name for f in Path(tmp).iterdir()},{'view-labeled.jpg','view-ids.png','view-depth.npy'})   # ID buffer stays lossless PNG
             self.assertEqual(np.asarray(Image.open(result['ids']))[60,80],300)
             self.assertAlmostEqual(float(np.load(result['depth'])[60,80]),2)
 

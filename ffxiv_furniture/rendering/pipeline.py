@@ -482,7 +482,7 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
         furn={m['id'] for m in meshes if m['role']=='furniture'};best=None;trial=[]
         with tempfile.TemporaryDirectory() as tmpd:
             for k,cam in enumerate(cands):
-                v=render(meshes,cam,Path(tmpd)/f'c{k}.png',size=(240,160));vis=v.get('visible_object_pixels',{});fp=sum(n for i,n in vis.items() if int(i) in furn);trial.append((fp,['NE','NW','SE','SW'][k]))
+                v=render(meshes,cam,Path(tmpd)/f'c{k}.jpg',size=(240,160));vis=v.get('visible_object_pixels',{});fp=sum(n for i,n in vis.items() if int(i) in furn);trial.append((fp,['NE','NW','SE','SW'][k]))
                 if best is None or fp>best[0]:best=(fp,cam)
         cameras=[best[1] if c.get('name')=='overview' else c for c in cameras]
         warnings.append('overview camera auto-picked from 4 corners by visible furniture pixels (%s); stairs sectioned above %.1f m in cutaway views'%(', '.join(f'{n}:{p}' for p,n in trial),SECTION_Z))
@@ -493,10 +493,10 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
         warnings.append('Views are horizontally mirrored (view-only, per user observation that app left/right is opposite); layout and world coordinates are unchanged. Pass mirror_view=False / --no-mirror for the raw projection.')
     if lighting_cfg:cameras=[{**c,'lighting':lighting_cfg} for c in cameras]
     image_stem=image_prefix if image_prefix is not None else 'view'
-    image_paths=[out/f'{image_stem}-{i+1:02d}.png' for i in range(len(cameras))]
+    image_paths=[out/f'{image_stem}-{i+1:02d}.jpg' for i in range(len(cameras))]
     if not overwrite:
         for path in image_paths:
-            targets=[path.with_name(path.stem+'-labeled.png') if labels else path]
+            targets=[path.with_name(path.stem+'-labeled.jpg') if labels else path]
             if debug_buffers:targets.extend((path.with_name(path.stem+'-ids.png'),path.with_name(path.stem+'-depth.npy')))
             if any(p.exists() for p in targets):raise ValueError('Render image already exists; choose a different image_prefix')
     out.mkdir(parents=True,exist_ok=True)

@@ -1,4 +1,4 @@
-"""Independent model review of a deco round's render sheets through the `agy` CLI (file protocol: the model reads the PNGs itself).
+"""Independent model review of a deco round's render sheets through the `agy` CLI (file protocol: the model reads the JPEG/PNG sheets itself).
 
   python scripts/review_deco.py <round-dir> --program-file program.txt --models <model-a>,<model-b> [--runs 1]
 
@@ -10,8 +10,8 @@ The orchestrating agent cannot tell the reviewer what the design achieves: progr
 pre-excuses ("already verified", "intentionally empty", "do not flag", "faces it") is rejected (lint), because such prompts turned a
 broken design into an "ok" verdict (the same sheets scored 3/10 'revise' in 4/4 runs once the claims were removed).
 Every round is a fresh review (no "was your previous issue fixed?" checklist, which converges to ok). Verdict ok only if EVERY run
-returns ok; issues raised by a single run are hints to verify against geometry. Writes review-prompt.txt, review-run-*.json and
-review-reply.json into the round dir; exit code 0 = ok, 1 = revise. Applies nothing itself.
+returns ok; issues raised by a single run are hints to verify against geometry. Writes review-reply.json into the round dir (prompt, raw output and
+per-run JSON are removed afterwards unless --keep-artifacts or a parse failure); exit code 0 = ok, 1 = revise. Applies nothing itself.
 """
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, subprocess, sys
@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 RENDER_LIMITS = ("Approximate lighting without shadows or reflections; native windows show no outdoor view; book spines are baked "
                  "textures; water and particle effects are not drawn. These are preview-tool limits, not design faults.")
+CONVENTIONS = ("Every image is mirrored left-right to match the in-app camera, so compass words in panel titles (north, east...) do not map to "
+               "image left/right. A set item (a stepping-stone set, a rug, a paired lantern piece) counts as one item toward any item limit.")
 CHECKLIST = """For every panel check:
 1. Can each door / doorway actually be walked through, or is it filled or blocked by furniture or partitions?
 2. Does any furniture intersect other furniture or walls, float, or sit on nothing?
@@ -35,6 +37,14 @@ CLAIM_PATTERNS = [r'\bverif', r'\balready\b', r'\bintentional', r'\bdeliberate',
                   r'\bpassed\b', r'\bapproved\b', r'\bconfirmed\b', r'\bfixed\b']
 
 
+
+SHEET_SUFFIXES = ('.jpg', '.jpeg', '.png')
+
+
+def find_sheets(round_dir):
+    """Render sheets in a round dir (JPEG is the normal format; PNG kept for older rounds), sorted by name."""
+    return sorted(p.name for p in Path(round_dir).iterdir() if p.is_file() and p.suffix.lower() in SHEET_SUFFIXES)
+
 def lint_program(text):
     """Lines of the program that claim results/verification or pre-excuse defects (the reviewer must find those itself)."""
     return [(i + 1, line.strip(), pat) for i, line in enumerate(text.splitlines()) for pat in CLAIM_PATTERNS if re.search(pat, line, re.I)]
@@ -43,7 +53,7 @@ def lint_program(text):
 def build_prompt(program, sheets):
     return ("You are an independent reviewer of an FFXIV housing design shown as native preview renders. Nothing has been verified "
             "for you: check everything yourself from the pixels.\n\nWHAT THE OWNER ASKED FOR (program, not a description of the result; "
-            "do not assume any of it exists or works):\n" + program.strip() + "\n\nRENDER LIMITS: " + RENDER_LIMITS + "\n\n" + CHECKLIST +
+            "do not assume any of it exists or works):\n" + program.strip() + "\n\nRENDER LIMITS: " + RENDER_LIMITS + "\n\nVIEW AND COUNTING CONVENTIONS: " + CONVENTIONS + "\n\n" + CHECKLIST +
             "\n\nSheets in this folder (read every one fully): " + ", ".join(sheets) + "\n\n" + REPLY)
 
 
@@ -54,6 +64,34 @@ def aggregate(runs):
     return {'verdict': 'ok' if ok else 'revise', 'runs': len(runs), 'valid_runs': len(valid), 'must_per_run': must,
             'scores': [r.get('score') for r in valid],
             'note': 'ok requires every run to be ok with no must issue; single-run issues are hints to verify against geometry'}
+
+
+def cleanup_round(round_dir, runs, keep_artifacts=False):
+    """After review-reply.json is written, delete the round's intermediates (prompt, raw agy output, per-run JSON): the reply
+    already holds every verdict, score and issue. Kept when keep_artifacts is set or any run failed to parse (evidence)."""
+    if keep_artifacts or any(r.get('parse_error') for r in runs):
+        return []
+    removed = []
+    for p in Path(round_dir).iterdir():
+        if p.is_file() and (p.name == 'review-prompt.txt' or p.name.startswith(('review-raw-', 'review-run-'))):
+            p.unlink(); removed.append(p.name)
+    return removed
+
+
+def run_jobs(jobs, call, staged=False):
+    """Run review jobs [(model, k)]. Parallel by default. staged=True runs them in order and stops at the first run that is not
+    'ok' (revise or unparseable): the round already needs revision, so later reviewers would cost quota without changing the verdict.
+    An ok run never ends a staged round early; the next model must confirm it. Returns (runs, skipped_jobs)."""
+    if not staged:
+        with ThreadPoolExecutor(max(1, len(jobs))) as ex:
+            results = list(ex.map(call, jobs))
+        return [dict(r, _model=m, _run=k) for (m, k), r in zip(jobs, results)], []
+    runs = []
+    for i, (m, k) in enumerate(jobs):
+        r = dict(call((m, k)), _model=m, _run=k); runs.append(r)
+        if r.get('parse_error') or r.get('verdict') != 'ok' or any(x.get('severity') == 'must' for x in r.get('issues', [])):
+            return runs, jobs[i + 1:]
+    return runs, []
 
 
 def _call(model, short, round_dir, timeout, raw_path):
@@ -78,9 +116,13 @@ def main(argv=None):
     ap.add_argument('--runs', type=int, default=1, help='runs per model')
     ap.add_argument('--timeout', type=int, default=540)
     ap.add_argument('--dry-run', action='store_true', help='lint and write the prompt only')
+    ap.add_argument('--keep-artifacts', action='store_true', help='keep the prompt, raw agy output and per-run JSON (default: only '
+                    'review-reply.json is kept unless a run failed to parse)')
+    ap.add_argument('--staged', action='store_true', help='run models in the given order and stop at the first non-ok run '
+                    '(acceptance still needs every run ok, so an ok first run is always confirmed by the next model)')
     a = ap.parse_args(argv)
-    rd = a.round_dir.resolve(); sheets = sorted(p.name for p in rd.glob('*.png'))
-    if not sheets: raise SystemExit('no render sheets (*.png) in round dir')
+    rd = a.round_dir.resolve(); sheets = find_sheets(rd)
+    if not sheets: raise SystemExit('no render sheets (*.jpg/*.jpeg/*.png) in round dir')
     program = a.program_file.read_text(encoding='utf-8')
     bad = lint_program(program)
     if bad:
@@ -89,20 +131,18 @@ def main(argv=None):
     prompt = build_prompt(program, sheets); (rd / 'review-prompt.txt').write_text(prompt, encoding='utf-8')
     if a.dry_run: print(prompt); return 0
     if not a.models: raise SystemExit('set --models or DECO_REVIEW_MODELS to the benchmarked reviewer model ids')
-    short = (f"Read {rd / 'review-prompt.txt'} with your file-read tool, then read every PNG it lists from {rd} with the file-read "
+    short = (f"Read {rd / 'review-prompt.txt'} with your file-read tool, then read every image it lists from {rd} with the file-read "
              "tool (do not run shell commands). Follow it exactly and reply with ONLY the JSON object.")
     jobs = [(m.strip(), k) for m in a.models.split(',') if m.strip() for k in range(1, a.runs + 1)]
-    with ThreadPoolExecutor(len(jobs)) as ex:
-        results = list(ex.map(lambda j: _call(j[0], short, rd, a.timeout, rd / f'review-raw-{j[0]}-{j[1]}.json'), jobs))
-    runs = []
-    for (m, k), r in zip(jobs, results):
-        r = dict(r, _model=m, _run=k); runs.append(r)
-        (rd / f'review-run-{m}-{k}.json').write_text(json.dumps(r, ensure_ascii=False, indent=1), encoding='utf-8')
-    reply = {**aggregate(runs), 'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(), 'sheets': sheets,
+    runs, skipped = run_jobs(jobs, lambda j: _call(j[0], short, rd, a.timeout, rd / f'review-raw-{j[0]}-{j[1]}.json'), a.staged)
+    for r in runs:
+        (rd / f"review-run-{r['_model']}-{r['_run']}.json").write_text(json.dumps(r, ensure_ascii=False, indent=1), encoding='utf-8')
+    reply = {**aggregate(runs), 'skipped_after_revise': [f'{m}-{k}' for m, k in skipped], 'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(), 'sheets': sheets,
              'issues_by_run': [{'model': r['_model'], 'run': r['_run'], 'verdict': r.get('verdict'), 'issues': r.get('issues', []),
                                 'missing': r.get('requested_functions_missing_or_broken', [])} for r in runs]}
     (rd / 'review-reply.json').write_text(json.dumps(reply, ensure_ascii=False, indent=1), encoding='utf-8')
-    print(json.dumps({k: reply[k] for k in ('verdict', 'must_per_run', 'scores')}, ensure_ascii=False))
+    cleanup_round(rd, runs, a.keep_artifacts)
+    print(json.dumps({k: reply[k] for k in ('verdict', 'must_per_run', 'scores', 'skipped_after_revise')}, ensure_ascii=False))
     return 0 if reply['verdict'] == 'ok' else 1
 
 

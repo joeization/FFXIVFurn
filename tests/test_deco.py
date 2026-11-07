@@ -35,6 +35,17 @@ class DecoTests(unittest.TestCase):
         codes = {i['code'] for i in c.exception.issues}; self.assertIn('OUTSIDE_FLOOR', codes); self.assertIn('STAIR_INTERSECTION', codes)
         self.assertEqual(s.revision, rev); self.assertNotIn('good2', s.instances)   # nothing changed
 
+    def test_export_keeps_only_the_newest_file_per_name(self):
+        s = mk(); s.apply([P('Hingan Bench', [0, -3, 0], instance_id='a')])
+        first = s.export('plan'); other = s.export('other')
+        (s.dir / 'plan-r1.json.backup').write_text('app copy', encoding='utf-8')   # app-owned file, never touched
+        s.apply([P('Hingan Bench', [2, -3, 0], instance_id='b')])
+        second = s.export('plan')
+        names = sorted(p.name for p in s.dir.iterdir() if p.name.startswith(('plan', 'other')))
+        rev = s.revision
+        self.assertEqual(names, sorted([f'plan-r{rev}.json', f'plan-r{rev}.map.json', 'plan-r1.json.backup', 'other-r1.json', 'other-r1.map.json']))
+        self.assertEqual(sorted(second['removed']), sorted([Path(first['layout']['path']).name, Path(first['instance_map']).name]))
+
     def test_hole_rejected(self):
         s = mk()
         with self.assertRaises(DecoError) as c: s.apply([P('Hingan Sofa', [-8, 5, 0])], strict=True)
@@ -132,6 +143,17 @@ class UpperFloorTest(unittest.TestCase):
         self.assertEqual(slots['Upper Floor'], 44870); self.assertEqual(slots['Ground Floor'], 7138)
 
 
+    def test_inspect_surfaces_have_world_centres_matching_place_on(self):
+        s = mk(); s.apply([P('Hingan Sitting Table', [-2.0, -3.0, 0], 90, instance_id='t')])
+        surf = [x for x in s.inspect()['surfaces'] if x['owner_id'] == 't']
+        self.assertTrue(surf)
+        for x in surf:
+            self.assertEqual(len(x['center_world']), 2)
+            s.apply([dict(op='place_on', instance_id=f"c{x['surface_idx']}", name='Green Tea Set', target_id='t', surface_idx=x['surface_idx'], offset_xy=[0, 0])])
+            b = s.view(s.instances[f"c{x['surface_idx']}"])['bounds_world']
+            cx, cy = (b['min'][0] + b['max'][0]) / 2, (b['min'][1] + b['max'][1]) / 2
+            self.assertAlmostEqual(cx, x['center_world'][0], delta=0.05); self.assertAlmostEqual(cy, x['center_world'][1], delta=0.05)
+
 class AnalyzeTest(unittest.TestCase):
     def test_closed_box_is_inaccessible_and_a_door_opens_it(self):
         from ffxiv_furniture.deco.analyze import analyze
@@ -140,6 +162,108 @@ class AnalyzeTest(unittest.TestCase):
         self.assertIn('in_room', [x['instance_id'] for x in analyze(s, start=(0.0, -4.0))['reachability']['instances_without_access']])
         s2 = mk(); s2.apply([P('Oasis Stool', [-8, -5, 0], instance_id='in_room'), P(B, [-10.2, -5.0, 0], 90), P('Minimalist Partition Door', [-5.8, -5.0, 0], 90), P(B, [-8.0, -2.6, 0], 0), P(B, [-8.0, -7.6, 0], 0)])
         self.assertNotIn('in_room', [x['instance_id'] for x in analyze(s2, start=(0.0, -4.0))['reachability']['instances_without_access']])
+
+    def test_offset_sliding_door_partitions_open_a_closed_box(self):
+        # Paper/Oriental Partition have no 'door' in their names; their walkable opening is a measured
+        # ~1.8 m half-open bay on local +x, not a centred gap. Reachability must use the mesh opening.
+        from ffxiv_furniture.deco.analyze import analyze
+        B = 'Blank Minimalist Partition'
+        for door in ('Paper Partition', 'Oriental Partition'):
+            s = mk(); s.apply([P('Oasis Stool', [-8, -5, 0], instance_id='in_room'), P(B, [-10.2, -5.0, 0], 90), P(door, [-5.8, -5.0, 0], 90, instance_id='d'), P(B, [-8.0, -2.6, 0], 0), P(B, [-8.0, -7.6, 0], 0)])
+            a = analyze(s, start=(0.0, -4.0))
+            self.assertNotIn('in_room', [x['instance_id'] for x in a['reachability']['instances_without_access']], door)
+            # turning it end-for-end (yaw 90 -> 270) moves the opening to the other half; it must still open the box
+            s.apply([dict(op='rotate', instance_id='d', yaw_deg=270)])
+            a = analyze(s, start=(0.0, -4.0))
+            self.assertNotIn('in_room', [x['instance_id'] for x in a['reachability']['instances_without_access']], door + ' yaw270')
+
+    def test_solid_partition_without_opening_stays_closed(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        B = 'Blank Minimalist Partition'
+        s = mk(); s.apply([P('Oasis Stool', [-8, -5, 0], instance_id='in_room'), P(B, [-10.2, -5.0, 0], 90), P('Blank Hingan Partition', [-5.8, -5.0, 0], 90), P(B, [-8.0, -2.6, 0], 0), P(B, [-8.0, -7.6, 0], 0)])
+        self.assertIn('in_room', [x['instance_id'] for x in analyze(s, start=(0.0, -4.0))['reachability']['instances_without_access']])
+
+    def test_check_routes_reports_blockers_but_not_rugs_or_door_openings(self):
+        from ffxiv_furniture.deco.analyze import check_routes
+        route = [dict(name='aisle', points=[[-3, -5], [3, -5]])]
+        s = mk()
+        r = check_routes(s, route)[0]
+        self.assertTrue(r['clear'], r); self.assertEqual(r['blockers'], [])
+        s.apply([P('Combed Wool Rug', [0, -5, 0], instance_id='rug')])
+        self.assertTrue(check_routes(s, route)[0]['clear'])
+        s.apply([P('Hingan Sitting Table', [0, -5, 0], instance_id='t')])
+        r = check_routes(s, route)[0]
+        self.assertFalse(r['clear']); self.assertEqual([b['instance_id'] for b in r['blockers']], ['t'])
+        self.assertGreater(r['blockers'][0]['overlap_m2'], 0.3)
+        s2 = mk(); s2.apply([P('Minimalist Partition Door', [0, -5, 0], 90, instance_id='door')])
+        self.assertTrue(check_routes(s2, route)[0]['clear'])
+        s3 = mk(); s3.apply([P('Blank Minimalist Partition', [0, -5, 0], 90, instance_id='wall')])
+        self.assertEqual([b['instance_id'] for b in check_routes(s3, route)[0]['blockers']], ['wall'])
+
+    def test_check_routes_width_and_validation(self):
+        from ffxiv_furniture.deco.analyze import check_routes
+        s = mk(); s.apply([P('Hingan Sitting Table', [0, -3.5, 0], instance_id='t')])   # table edge ~0.7 m from the line
+        line = [dict(name='a', points=[[-3, -5.0], [3, -5.0]])]
+        self.assertTrue(check_routes(s, line, width_m=0.8)[0]['clear'])
+        self.assertFalse(check_routes(s, line, width_m=2.4)[0]['clear'])
+        for bad in ([dict(name='x', points=[[0, 0]])], [dict(points=[[0, 0], [1, 1]])], [dict(name='x', points=[[0, 0], [float('nan'), 1]])]):
+            with self.assertRaises(DecoError): check_routes(s, bad)
+        with self.assertRaises(DecoError): check_routes(s, line, width_m=0)
+
+    def test_check_routes_mcp_tool_wraps_errors(self):
+        from unittest.mock import patch
+        from mcp.server.fastmcp.exceptions import ToolError
+        from ffxiv_furniture.deco import server
+        s = mk(); s.apply([P('Hingan Sitting Table', [0, -5, 0], instance_id='t')])
+        with patch.object(server, '_boot', return_value=s), patch.object(server, '_sess', s):
+            r = server.check_routes(routes=[dict(name='aisle', points=[[-3, -5], [3, -5]])])
+            self.assertEqual(r['routes'][0]['blockers'][0]['instance_id'], 't'); self.assertFalse(r['all_clear'])
+            with self.assertRaises(ToolError): server.check_routes(routes=[])
+
+    def test_wall_gaps_report_narrow_seal_leaks_with_location(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        B = 'Blank Minimalist Partition'
+        s = mk(); s.apply([P(B, [-8.0, -2.6, 0], 0, instance_id='w1'), P(B, [-3.8, -2.6, 0], 0, instance_id='w2')])   # ends 0.2 m apart at x~-5.9
+        gaps = analyze(s)['wall_gaps']
+        hit = [g for g in gaps if {g['a'], g['b']} == {'w1', 'w2'}]
+        self.assertEqual(len(hit), 1, gaps)
+        self.assertAlmostEqual(hit[0]['width_m'], 0.2, delta=0.05)
+        self.assertAlmostEqual(hit[0]['at'][0], -5.9, delta=0.15); self.assertAlmostEqual(hit[0]['at'][1], -2.6, delta=0.5)
+        s2 = mk(); s2.apply([P(B, [-8.0, -2.6, 0], 0, instance_id='w1'), P(B, [-4.0, -2.6, 0], 0, instance_id='w2')])   # touching: sealed
+        self.assertEqual([g for g in analyze(s2)['wall_gaps'] if {g['a'], g['b']} == {'w1', 'w2'}], [])
+        s3 = mk(); s3.apply([P(B, [-8.0, -2.6, 0], 0, instance_id='w1'), P(B, [-2.0, -2.6, 0], 0, instance_id='w2')])   # 2 m: a real opening
+        self.assertEqual([g for g in analyze(s3)['wall_gaps'] if {g['a'], g['b']} == {'w1', 'w2'}], [])
+
+    def test_wall_gaps_ignore_gaps_bridged_by_a_third_piece(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        B = 'Blank Minimalist Partition'
+        s = mk(); s.apply([P(B, [-8.0, -2.6, 0], 0, instance_id='w1'), P(B, [-3.8, -2.6, 0], 0, instance_id='w2'),
+                           P(B, [-5.9, -2.0, 0], 0, instance_id='bridge')])   # third wall laps over the 0.2 m slit
+        self.assertEqual([g for g in analyze(s)['wall_gaps'] if {g['a'], g['b']} == {'w1', 'w2'}], [])
+
+    def test_raised_platform_is_walkable_but_a_table_is_not(self):
+        from ffxiv_furniture.deco.analyze import analyze, check_routes, is_platform
+        s = mk()
+        self.assertTrue(is_platform(s.cat.item(name='Tatami Loft')))
+        self.assertFalse(is_platform(s.cat.item(name='Hingan Sitting Table')))
+        s.apply([P('Tatami Loft', [0, -4, 0], instance_id='loft'), P('Zabuton Cushion', [0, -4, 0.5], instance_id='cushion')])
+        a = analyze(s)
+        self.assertNotIn('loft', [x['instance_id'] for x in a['reachability']['instances_without_access']])
+        r = check_routes(s, [dict(name='over', points=[[-3, -4], [3, -4]])])[0]
+        self.assertTrue(r['clear'], r); self.assertEqual([x['instance_id'] for x in r['steps']], ['loft'])
+        s.apply([P('Hingan Sitting Table', [0, -4, 0.5], instance_id='t')])
+        r = check_routes(s, [dict(name='over', points=[[-3, -4], [3, -4]])])[0]
+        self.assertEqual([x['instance_id'] for x in r['blockers']], ['t'])
+
+    def test_tall_pieces_crowding_the_entrance_are_listed(self):
+        from ffxiv_furniture.deco.analyze import analyze
+        s = mk(); dx, dy = s.room.door_xy   # Medium: door on the north wall, lane runs south
+        s.apply([P('Hingan Cupboard', [dx + 2.3, dy - 1.5, 0], 0, instance_id='near'), P('Hingan Cupboard', [dx + 8, dy - 6, 0], 0, instance_id='far'),
+                 P('Hingan Bench', [dx - 2.2, dy - 1.5, 0], 0, instance_id='low')])
+        hits = {x['instance_id']: x for x in analyze(s)['entrance_tall']}
+        self.assertIn('near', hits); self.assertNotIn('far', hits); self.assertNotIn('low', hits)
+        self.assertGreaterEqual(hits['near']['height_m'], 2.0); self.assertLess(hits['near']['distance_to_lane_m'], 1.5)
+        self.assertEqual(analyze(s, level='upper')['entrance_tall'], [])
 
     def test_seat_facing_error_reported(self):
         from ffxiv_furniture.deco.analyze import analyze

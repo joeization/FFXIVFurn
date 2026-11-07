@@ -22,7 +22,7 @@ def camera_basis(camera):
 
 
 def finish(rgb,ids,zbuf,meshes,camera,path,size,near,display_gamma,start,input_faces,clipped_faces,updates,textured_updates,*,labels=False,debug_buffers=False):
-    """Write only the requested image; ID/depth files are explicit debug outputs."""
+    """Write only the requested image (format from the path suffix, normally .jpg); ID/depth files are explicit debug outputs and stay lossless (PNG/NPY)."""
     width,height=size
     if display_gamma!=1.0:   # display lift fitted to app screenshot samples: dark/mid tones are brighter in the app (not a physical lighting model)
         covered=np.isfinite(zbuf);rgb[covered]=np.clip(255*(rgb[covered]/255.0)**display_gamma,0,255).astype(np.uint8)
@@ -39,9 +39,10 @@ def finish(rgb,ids,zbuf,meshes,camera,path,size,near,display_gamma,start,input_f
             if len(xs)>=30:
                 x,y=int(np.median(xs)),int(np.median(ys))
                 if y>42:draw_labels.text((x,y),str(object_id),fill='#ffe274',stroke_width=2,stroke_fill='black')
-        path=path.with_name(path.stem+'-labeled.png')
+        path=path.with_name(path.stem+'-labeled'+path.suffix)
         artifacts['labeled']=str(path.resolve())
-    image.save(path)
+    if path.suffix.lower() in ('.jpg','.jpeg'):image.convert('RGB').save(path,'JPEG',quality=90)   # previews are viewed, never pixel-compared: JPEG is ~5-10x smaller
+    else:image.save(path)
     if debug_buffers:
         stem=path.stem.removesuffix('-labeled')
         id_path=path.with_name(stem+'-ids.png');depth_path=path.with_name(stem+'-depth.npy')

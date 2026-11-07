@@ -40,7 +40,7 @@ class ExteriorProfileTests(unittest.TestCase):
             self.assertEqual(m['scope'],'exterior')
             self.assertTrue(any(x.get('item_id')==6475 for x in m['objects'].values()))
             self.assertTrue(any('GladeCottageRoof' in x.get('source','') for x in m['objects'].values()))
-            self.assertTrue(all(p.suffix=='.png' for p in out.iterdir()))
+            self.assertTrue(all(p.suffix=='.jpg' for p in out.iterdir()))
             self.assertTrue(any(v['visible_object_pixels'].get('1',0)>0 for v in m['views']))
     def test_yard_session_scope_fixtures_history_and_export_preserve_indoor_data(self):
         from ffxiv_furniture.deco.exterior import ExteriorCatalog,ExteriorRoom,ExteriorSession
@@ -70,6 +70,35 @@ class ExteriorProfileTests(unittest.TestCase):
                 self.assertTrue(result['ok'])
                 rendered=server.render(view='overview',width=160,height=120,lighting='off')
                 meta=json.loads(rendered[-1]);self.assertEqual(meta['scope'],'exterior')
-                self.assertEqual(Path(meta['image']).parent,session.dir/'renders')
+                self.assertEqual(Path(meta['image']).parent.resolve(),(session.dir/'renders').resolve())
+
+    def test_refresh_indoor_replaces_only_non_exterior_fields(self):
+        from ffxiv_furniture.deco.exterior import ExteriorCatalog,ExteriorRoom,ExteriorSession
+        from ffxiv_furniture.deco.core import DecoError
+        root=Path(__file__).resolve().parents[1];lay=json.loads((root/'data/seeds/apartment-seed.json').read_bytes());lay.update(houseSize='Small',exteriorScale=10)
+        lay['interiorFurniture']=[dict(itemId=1,name='old indoor',transform={},properties={})]
+        cat=ExteriorCatalog('Small');self.addCleanup(cat.db.close)
+        with tempfile.TemporaryDirectory() as tmp:
+            session=ExteriorSession('test',cat,ExteriorRoom('Small'),tmp,seed_layout=lay,max_patch=7.2)
+            session.apply([dict(op='place',item_id=6475,position=[6,5,0],instance_id='box')])
+            session.apply([dict(op='fixture',type='Roof',name='Glade Cottage Roof (Wood)')])
+            before=session.layout_dict();rev=session.revision
+            newer=json.loads(json.dumps(lay));newer['interiorFurniture']=[dict(itemId=2,name='new indoor',transform={},properties={})]
+            newer['interiorFixture']=newer['interiorFixture'][:1];newer['exteriorFurniture']=[];newer['exteriorFixture']=[]
+            src=Path(tmp)/'interior-r9.json';src.write_bytes(b'\xff\xfe'+json.dumps(newer).encode('utf-16-le'))
+            r=session.refresh_indoor(src)
+            self.assertEqual(r['revision'],rev+1);self.assertIn('interiorFurniture',r['changed_fields'])
+            after=session.layout_dict()
+            self.assertEqual(after['interiorFurniture'],newer['interiorFurniture']);self.assertEqual(after['interiorFixture'],newer['interiorFixture'])
+            self.assertEqual(after['exteriorFurniture'],before['exteriorFurniture']);self.assertEqual(after['exteriorFixture'],before['exteriorFixture'])
+            self.assertEqual(ExteriorSession('test',cat,ExteriorRoom('Small'),tmp).layout_dict()['interiorFurniture'],newer['interiorFurniture'])
+            other=json.loads(json.dumps(newer));other['houseSize']='Medium';bad=Path(tmp)/'m.json';bad.write_text(json.dumps(other),encoding='utf-8')
+            with self.assertRaises(DecoError):session.refresh_indoor(bad)
+            self.assertEqual(session.revision,rev+1)
+            from ffxiv_furniture.deco import server
+            from mcp.server.fastmcp.exceptions import ToolError
+            with patch.object(server,'_boot',return_value=session),patch.object(server,'_sess',session):
+                self.assertEqual(server.refresh_indoor(layout_path=str(src))['revision'],rev+2)
+                with self.assertRaises(ToolError):server.refresh_indoor(layout_path=str(bad))
 
 if __name__=='__main__':unittest.main()
