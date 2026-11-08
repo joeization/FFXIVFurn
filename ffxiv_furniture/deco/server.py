@@ -690,6 +690,13 @@ def _renderer_version():
     )
 
 
+
+def _levels_of_spans(spans):
+    """Floors used by items given their (bottom, top) world z, by the shared rule (interiors.level_for_span)."""
+    from ffxiv_furniture.interiors import level_for_span
+
+    return {level_for_span(zb, zt) for zb, zt in spans}
+
 def _camera(view, session):
     if isinstance(view, str):
         cams = _cameras()
@@ -832,16 +839,15 @@ def _render_impl(
                 and all(Path(p).is_file() for p in m.get("artifacts", {}).values())
             )
         )
-        need_upper = bool(cam.get("upper")) or any(
-            i["pivot"][2] + s.cat.item(i["item_id"])["lo"][2] >= 6.4 for i in s.instances.values()
-        )
         if not cache_hit:
             from ffxiv_furniture.rendering.pipeline import run_pipeline
 
-            need_bs = bool(cam.get("basement")) or any(
-                i["pivot"][2] + s.cat.item(i["item_id"])["lo"][2] <= -3
-                for i in s.instances.values()
+            used = _levels_of_spans(
+                (i["pivot"][2] + it["lo"][2], i["pivot"][2] + it["hi"][2])
+                for i in s.instances.values() for it in (s.cat.item(i["item_id"]),)
             )
+            need_upper = bool(cam.get("upper")) or "upper" in used
+            need_bs = bool(cam.get("basement")) or "basement" in used
             m = run_pipeline(
                 lay,
                 out,

@@ -149,7 +149,7 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
                 meshes.append({'id':object_id,'vertices':world,'triangles':mesh['triangles'][a:a+n],'uv':mesh['uv'],'material':mat,'role':'furniture','projection_vertices':rotated,'projection_offset':position[:2],**({'flat_color':_mesh_flat(mat, fallback.get(item['itemId']))} if _mesh_flat(mat, fallback.get(item['itemId'])) else {})})
     district=next((r['name'] for r in layout.get('interiorFixture',[]) if r['type']=='District'),None)
     if district: district=district.replace(' ','')   # app display names ('Dark Minimalist') -> compact geometry tokens
-    from ..interiors import InteriorProfile, geometry as interior_geometry, transform_points, validate_style
+    from ..interiors import InteriorProfile, geometry as interior_geometry, level_for_span, transform_points, validate_style
     validate_style(district)
     interior=InteriorProfile(district) if house_size=='Medium' else None
     if house_size=='Large':
@@ -472,8 +472,9 @@ def run_pipeline(layout_path,output_dir,*,basement_context=False,db_path=None,ca
     _keeps=interior.stair_footprints('ground') if interior else room_keepouts(ROOT,house_size,'ground');stair_keep=_union(_keeps) if _keeps else None
     for m in meshes:
         if m['role']!='furniture':continue
-        is_upper=np.asarray(m['vertices'])[:,2].min()>=6.4
-        if np.asarray(m['vertices'])[:,2].min()<=-3:continue   # basement furniture: checked by the MCP, not here
+        _z=np.asarray(m['vertices'])[:,2];_lvl=level_for_span(float(_z.min()),float(_z.max()))
+        is_upper=_lvl=='upper'
+        if _lvl=='basement':continue   # basement furniture: checked by the MCP, not here
         floor_check=interior.polygon('upper') if is_upper and interior else floor
         if is_upper and not interior:continue
         # Footprint is the union of actual nondegenerate projected triangles, including concavities.

@@ -289,5 +289,15 @@ class DriverTests(unittest.TestCase):
         self.assertIn('client closed', str(e.exception))
 
 
+class SharedLevelRuleTests(unittest.TestCase):
+    def test_render_context_follows_the_shared_floor_rule(self):
+        from ffxiv_furniture.deco import server
+        span = lambda zb, zt: server._levels_of_spans([(zb, zt)])
+        self.assertEqual(span(-1.1, -0.9), {'basement'})   # hung from the basement ceiling
+        self.assertEqual(span(-4.4, -2.69), {'basement'})
+        self.assertEqual(span(7.0, 8.0), {'upper'})
+        self.assertEqual(span(0.0, 0.02), {'ground'})
+
+
 if __name__ == '__main__':
     unittest.main()
