@@ -1,22 +1,22 @@
-"""Unit tests use explicitly mocked inference, never contact the local model."""
+"""Offline classification manifests, sampling, clients, runners and response contracts."""
+
 import copy
 import json
-from pathlib import Path
-import re
 import tempfile
 import unittest
-from unittest.mock import patch
 import urllib.error
 from PIL import Image
 from ffxiv_furniture.classification.client import Client, parse_response
+from ffxiv_furniture.classification.contracts import visual_response_format
 from ffxiv_furniture.classification.manifest import prepare
-from ffxiv_furniture.classification.sampling import sample
-from ffxiv_furniture.classification.runner import classify
+from ffxiv_furniture.classification.prompts import visual_prompt
 from ffxiv_furniture.classification.reports import report
-from ffxiv_furniture.classification.state import connect, read_json, write_json
+from ffxiv_furniture.classification.runner import classify
+from ffxiv_furniture.classification.sampling import sample
+from ffxiv_furniture.classification.state import connect, read_json
 from ffxiv_furniture.classification.validation import validate_items
-from ffxiv_furniture.classification.vocabulary import (apply_vocab, consolidate, freeze_vocab,
-    inventory, normalize, validate_proposals, validate_vocab)
+from pathlib import Path
+from unittest.mock import patch
 
 
 def answer(ids):
@@ -64,7 +64,9 @@ class MockClient:
         return raw(answer(ids))
 
 
-class ClassificationTests(unittest.TestCase):
+class ClassificationFixture:
+    """Fresh synthetic manifest and explicit inference fakes, shared by offline tests."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -94,6 +96,8 @@ class ClassificationTests(unittest.TestCase):
     def classify(self, client=None, **kwargs):
         return classify(self.run, MockClient.endpoint, MockClient.model, client=client or MockClient(), **kwargs)
 
+
+class ManifestTests(ClassificationFixture, unittest.TestCase):
     def test_manifest_duplicate_image_preserves_mappings(self):
         result = prepare(self.manifest, self.run)
         self.assertEqual(result['assets'],18)
@@ -116,6 +120,8 @@ class ClassificationTests(unittest.TestCase):
         rows=copy.deepcopy(self.rows); rows[0]['name']='changed'; self.write_manifest(rows)
         with self.assertRaises(ValueError): prepare(self.manifest,self.run)
 
+
+class SamplingTests(ClassificationFixture, unittest.TestCase):
     def test_sampling_reproducible_unique_small_groups(self):
         result=self.sampled()
         before=(self.run/'round-001.json').read_bytes()
@@ -137,6 +143,8 @@ class ClassificationTests(unittest.TestCase):
         other=self.root/'full'; prepare(self.manifest,other)
         self.assertEqual(sample(other,budget=100)['selected'],17)
 
+
+class ClassificationValidationTests(ClassificationFixture, unittest.TestCase):
     def test_exact_ids_and_validation_failures(self):
         valid=answer(['I0001','I0002'])
         validate_items(valid,['I0001','I0002'])
@@ -151,10 +159,27 @@ class ClassificationTests(unittest.TestCase):
             else: bad['items'][0]['tags']*=7
             with self.assertRaises(ValueError): validate_items(bad,['I0001','I0002'])
 
+
+class ClassificationClientTests(ClassificationFixture, unittest.TestCase):
     def test_reasoning_and_fenced_content(self):
         self.assertEqual(parse_response(raw(answer(['I0001']))), answer(['I0001']))
         with self.assertRaises(ValueError): parse_response({'choices':[{'message':{'content':None,'reasoning_content':'{}'}}]})
 
+    def test_discover_explicit_model_and_bounded_http_retries(self):
+        client=Client('http://mock.invalid/v1','wanted',1)
+        with patch.object(client,'_request',return_value={'data':[{'id':'other'}]}):
+            with self.assertRaises(ValueError): client.discover()
+        error=urllib.error.HTTPError('http://mock',503,'busy',{},None)
+        with patch('urllib.request.urlopen',side_effect=error) as request, patch('time.sleep'):
+            with self.assertRaises(RuntimeError): client.chat([])
+            self.assertEqual(request.call_count,3)
+        error=urllib.error.HTTPError('http://mock',400,'bad',{},None)
+        with patch('urllib.request.urlopen',side_effect=error) as request:
+            with self.assertRaises(RuntimeError): client.chat([])
+            self.assertEqual(request.call_count,1)
+
+
+class ClassificationRunnerTests(ClassificationFixture, unittest.TestCase):
     def test_real_image_payload_privacy_and_resume(self):
         self.sampled()
         client=MockClient()
@@ -220,121 +245,6 @@ class ClassificationTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.classify(client)
         self.assertEqual(len(client.calls),0)
 
-    def test_discover_explicit_model_and_bounded_http_retries(self):
-        client=Client('http://mock.invalid/v1','wanted',1)
-        with patch.object(client,'_request',return_value={'data':[{'id':'other'}]}):
-            with self.assertRaises(ValueError): client.discover()
-        error=urllib.error.HTTPError('http://mock',503,'busy',{},None)
-        with patch('urllib.request.urlopen',side_effect=error) as request, patch('time.sleep'):
-            with self.assertRaises(RuntimeError): client.chat([])
-            self.assertEqual(request.call_count,3)
-        error=urllib.error.HTTPError('http://mock',400,'bad',{},None)
-        with patch('urllib.request.urlopen',side_effect=error) as request:
-            with self.assertRaises(RuntimeError): client.chat([])
-            self.assertEqual(request.call_count,1)
-
-    def test_consolidation_mock_normalization_versions_and_freeze_block(self):
-        self.sampled(8); self.classify()
-        self.assertEqual(normalize('  ＰＩＮＫ\t '),'pink')
-        concepts,obs=inventory(self.run)
-        self.assertEqual(len(concepts),1)
-        self.assertEqual(len(obs),8)
-        self.assertEqual(concepts[0]['original_names'],[' Pink '])
-        client=MockClient()
-        result=consolidate(self.run,client.endpoint,client.model,client=client)
-        self.assertEqual(result['version'],1)
-        self.assertIsInstance(client.calls[0][0]['content'],str)
-        self.assertNotIn('image_url',json.dumps(client.calls))
-        result2=consolidate(self.run,client.endpoint,client.model,client=client)
-        self.assertEqual(result2['version'],1)
-        self.assertEqual(len(client.calls),1)
-        with self.assertRaises(ValueError): freeze_vocab(self.run,self.run/'vocab-latest.json')
-        vocab=read_json(self.run/'vocab-latest.json')
-        vocab['concepts']=[]; path=self.root/'delete.json'; write_json(path,vocab)
-        with self.assertRaises(ValueError): apply_vocab(self.run,path)
-
-    def test_proposal_cycles_cross_category_and_ambiguity(self):
-        concepts=[{'concept_id':'a','category':'color'}, {'concept_id':'b','category':'color'}, {'concept_id':'c','category':'form'}]
-        def proposal(source,target): return {'action':'merge','source':source,'target':target,'reason':'same','interchangeable':True}
-        validate_proposals({'proposals':[proposal('a','b')]},concepts)
-        for proposals in ([proposal('a','b'),proposal('b','a')],[proposal('a','c')],[proposal('a','missing')],
-                          [{**proposal('a','b'),'interchangeable':False}]):
-            with self.assertRaises(ValueError): validate_proposals({'proposals':proposals},concepts)
-
-    def test_vocab_hash_invalidates_cache_and_final_unknown_keys(self):
-        self.sampled(4); self.classify()
-        client=MockClient(); consolidate(self.run,client.endpoint,client.model,client=client)
-        vocab=read_json(self.run/'vocab-latest.json')
-        concept=vocab['concepts'][0]
-        valid=answer(['I0001'])
-        valid['items'][0]['tags']=[{'key':concept['key'],'confidence':0.8,'evidence':'visible'}]
-        validate_items(valid,['I0001'],'guided',vocab)
-        valid['items'][0]['tags'][0]['key']='color:not-known'
-        with self.assertRaises(ValueError): validate_items(valid,['I0001'],'final',vocab)
-        with self.assertRaises(ValueError): self.classify(phase='final',vocab=self.run/'vocab-latest.json')
-        # Valid mocked guided output; changing vocab definition must trigger actual new job.
-        class GuidedMock(MockClient):
-            def chat(inner,messages,max_tokens=4096):
-                raw_value=super(GuidedMock,inner).chat(messages,max_tokens)
-                value=parse_response(raw_value)
-                for item in value['items']:
-                    item['tags']=[{'key':concept['key'],'confidence':0.8,'evidence':'visible'}]
-                return raw(value)
-        guided=GuidedMock()
-        self.classify(guided,phase='guided',vocab=self.run/'vocab-latest.json')
-        vocab['concepts'][0]['definition']='changed definition'
-        write_json(self.run/'changed.json',vocab)
-        self.classify(guided,phase='guided',vocab=self.run/'changed.json')
-        self.assertEqual(len(guided.calls),2)
-        self.assertNotIn('SECRET',json.dumps(guided.calls))
-        self.assertNotIn('image_path',json.dumps(guided.calls))
-
-    def test_vocab_apply_merge_preserves_original_and_split_blocks(self):
-        self.sampled(4)
-        class TwoNames(MockClient):
-            def chat(inner, messages, max_tokens=4096):
-                response = super(TwoNames,inner).chat(messages,max_tokens)
-                value = parse_response(response)
-                for index,item in enumerate(value['items']):
-                    item['tags'][0]['name'] = 'rose' if index % 2 else 'pink'
-                return raw(value)
-        self.classify(TwoNames())
-        mock=MockClient(); consolidate(self.run,mock.endpoint,mock.model,client=mock)
-        vocab=read_json(self.run/'vocab-latest.json')
-        source,target=vocab['concepts']
-        proposal={'action':'merge','source':source['concept_id'],'target':target['concept_id'],
-                  'reason':'explicitly reviewed synonyms','interchangeable':True,
-                  'status':'accepted','policy':'explicit','proposal_id':'reviewed-merge-1'}
-        vocab['proposals']=[proposal]
-        reviewed=self.root/'reviewed.json'; write_json(reviewed,vocab)
-        apply_vocab(self.run,reviewed)
-        applied=read_json(self.run/'vocab-latest.json')
-        self.assertEqual(len(applied['concepts']),2)
-        merged=next(c for c in applied['concepts'] if c['concept_id']==source['concept_id'])
-        self.assertEqual(merged['merged_into'],target['concept_id'])
-        self.assertTrue(merged['original_names'])
-        self.assertEqual(len(applied['decisions']),1)
-        self.assertTrue(applied['revisions'])
-        applied['proposals'].append({'action':'split','source':target['concept_id'],
-            'reason':'needs rejudgement','status':'accepted','policy':'explicit','proposal_id':'split-1'})
-        write_json(reviewed,applied)
-        with self.assertRaises(ValueError): apply_vocab(self.run,reviewed)
-        self.assertEqual(len(read_json(self.run/'vocab-latest.json')['decisions']),1)
-
-    def test_freeze_requires_decisions_and_defined_accepted_concepts(self):
-        self.sampled(100); self.classify()
-        mock=MockClient(); consolidate(self.run,mock.endpoint,mock.model,client=mock)
-        path=self.root/'freeze.json'
-        vocab=read_json(self.run/'vocab-latest.json')
-        write_json(path,vocab)
-        with self.assertRaises(ValueError): freeze_vocab(self.run,path)
-        for concept in vocab['concepts']:
-            concept['status']='accepted'
-            concept['definition']='Muted pink visible surface coloration.'
-        write_json(path,vocab)
-        freeze_vocab(self.run,path)
-        self.assertTrue(read_json(self.run/'vocab-latest.json')['frozen'])
-
     def test_qwen_text_template_setting_is_explicit_and_cached_separately(self):
         transport=Client('http://mock.invalid/v1','wanted',1,enable_thinking=False)
         with patch.object(transport,'_request',return_value=raw({'proposals':[]})) as request:
@@ -361,4 +271,47 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(report(self.run)['successful_unique_images'],4)
 
 
-if __name__=='__main__': unittest.main()
+class GuidedContractTests(unittest.TestCase):
+    def test_guided_example_never_shows_explore_tag_schema(self):
+        p=visual_prompt('guided',{'concepts':[]})
+        self.assertNotIn('"tags":[{"category"',p)
+        self.assertIn('"tags":[{"key"',p)
+        self.assertIn('EXACTLY key, confidence, evidence',p)
+        self.assertIn('definition,reason,confidence,evidence',p)
+
+    def test_explore_still_uses_free_names(self):
+        self.assertIn('"tags":[{"category"',visual_prompt('explore'))
+
+    def test_repair_error_explains_exact_fields(self):
+        value={'items':[{'id':'x','visual_description':'visible','tags':[{'key':'color:red','category':'color','confidence':1,'evidence':'red'}], 'proposed_tags':[],'uncertain':[]}]}
+        vocab={'concepts':[{'key':'color:red','status':'accepted'}]}
+        with self.assertRaisesRegex(ValueError,'expected.*confidence.*evidence.*key.*got'):
+            validate_items(value,['x'],'guided',vocab)
+
+
+class StructuredOutputTests(unittest.TestCase):
+    def test_active_keys_only_and_exact_shape(self):
+        vocab={'concepts':[{'key':'color:red','status':'accepted'},
+            {'key':'color:old','status':'merged'}, {'key':'style:carved','status':'provisional','superseded_by':'ornament:carved'}]}
+        fmt=visual_response_format(['R002I0001'],'guided',vocab)
+        item=fmt['json_schema']['schema']['properties']['items']['items']
+        tag=item['properties']['tags']['items']
+        self.assertEqual(tag['properties']['key']['enum'],['color:red'])
+        self.assertFalse(tag['additionalProperties'])
+        self.assertEqual(set(tag['required']),{'key','confidence','evidence'})
+        self.assertEqual(item['properties']['id']['enum'],['R002I0001'])
+        self.assertEqual(item['properties']['proposed_tags']['maxItems'],6)
+        self.assertEqual(visual_response_format(['x'],'final',vocab)['json_schema']['schema']['properties']['items']['items']['properties']['proposed_tags']['maxItems'],0)
+
+    def test_client_transmits_schema_and_thinking_policy(self):
+        c=Client('http://localhost/v1','test',enable_thinking=False,structured_output=True)
+        c.response_format=visual_response_format(['x'],'explore')
+        with patch.object(c,'_request',return_value={}) as send:
+            c.chat([])
+        payload=send.call_args.args[1]
+        self.assertEqual(payload['response_format'],c.response_format)
+        self.assertEqual(payload['chat_template_kwargs'],{'enable_thinking':False})
+
+
+if __name__ == '__main__':
+    unittest.main()

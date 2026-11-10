@@ -1,17 +1,31 @@
-"""Contract tests use synthetic source files and explicitly injected measurements."""
+"""Synthetic catalog bootstrap, source configuration and source-only distribution policy."""
 
-from contextlib import closing
-from pathlib import Path
 import csv
 import hashlib
+import importlib.util
 import json
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
-from typing import Any
-
+from contextlib import closing
 from ffxiv_furniture.bootstrap import build_catalog
 from ffxiv_furniture.config import load_sources
+from pathlib import Path
+from typing import Any
+from tests.support import ROOT
+
+def load_script(name):
+    """Load one repository script without repeating importlib boilerplate."""
+    spec = importlib.util.spec_from_file_location(name, ROOT / 'scripts' / f'{name}.py')
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+policy = load_script('check_distribution')
 
 
 def synthetic_measure(job) -> dict[str, Any]:
@@ -46,7 +60,7 @@ def synthetic_measure(job) -> dict[str, Any]:
     )
 
 
-class BootstrapTests(unittest.TestCase):
+class CatalogBootstrapTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -224,5 +238,41 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(c.execute("SELECT id FROM furniture").fetchall(), [(2,)])
 
 
-if __name__ == "__main__":
+SCRIPT = ROOT / 'scripts/check_distribution.py'
+
+
+class DistributionTests(unittest.TestCase):
+    def test_restricted_paths(self):
+        for path in ('data/seed.json', 'outputs/view.png', 'runs/result.json',
+                     'nested/catalog.db', 'nested/CATALOG.DB-wal', 'db/backup.sqlite3.bak',
+                     'mesh/Tree.UASSET', 'mesh/map.umap', '.env', '.env.local', 'HANDOFF.md'):
+            with self.subTest(path=path):
+                self.assertTrue(policy.restricted(path))
+        for path in ('README.md', 'docs/catalog.md', '.env.example',
+                     'ffxiv_furniture/database.py', 'tests/test_distribution.py'):
+            self.assertFalse(policy.restricted(path), path)
+
+    def test_directory_audit_fails_closed_and_is_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'README.md').write_text('source', encoding='utf-8')
+            clean = subprocess.run([sys.executable, str(SCRIPT), '--directory', tmp], capture_output=True)
+            self.assertEqual(clean.returncode, 0, clean.stderr)
+            banned = base / 'backup.sqlite3'
+            banned.write_bytes(b'policy test marker, not a database')
+            dirty = subprocess.run([sys.executable, str(SCRIPT), '--directory', tmp], capture_output=True)
+            self.assertEqual(dirty.returncode, 1)
+            self.assertIn(b'backup.sqlite3', dirty.stdout)
+            self.assertEqual(banned.read_bytes(), b'policy test marker, not a database')
+
+    def test_git_ignore_rules_cover_outside_data_and_uppercase(self):
+        paths = ['data/furniture.sqlite3', 'nested/catalog.db', 'nested/CATALOG.DB-wal',
+                 'nested/catalog.sqlite3.bak', 'mesh/Tree.UASSET', 'mesh/map.umap']
+        result = subprocess.run(['git', 'check-ignore', '--no-index', '-z', '--stdin'],
+                                input=('\0'.join(paths)+'\0').encode(), cwd=ROOT, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(set(result.stdout.decode().strip('\0').split('\0')), set(paths))
+
+
+if __name__ == '__main__':
     unittest.main()

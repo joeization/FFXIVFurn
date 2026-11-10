@@ -1,27 +1,22 @@
-"""Deterministic tests mock ONLY embedding inference; vec0 uses the real extension.
+"""Semantic retrieval and embedding contracts; inference is explicitly mocked."""
 
-No test downloads or loads model weights. Live model acceptance is separate.
-"""
-from contextlib import closing, redirect_stdout, redirect_stderr
 import importlib.util
 import io
 import json
 import math
-from pathlib import Path
 import sqlite3
 import struct
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch, Mock
-
+from contextlib import closing, redirect_stdout, redirect_stderr
 from ffxiv_furniture import FurnitureDB
 from ffxiv_furniture.__main__ import main
-from ffxiv_furniture.semantic import (DIMENSION, MODEL, PIPELINE, E5Embedder,
-    SemanticError, SemanticIndex, load_sqlite_vec, text_hash, vector_blob)
-
-ROOT = Path(__file__).resolve().parents[1]
+from ffxiv_furniture.semantic import DIMENSION, MODEL, PIPELINE, E5Embedder, SemanticError, SemanticIndex, load_sqlite_vec, text_hash, vector_blob
+from pathlib import Path
+from unittest.mock import patch, Mock
+from tests.support import ROOT
 
 
 def mocked_vectors(texts, *, query=False, batch_size=32):
@@ -30,7 +25,7 @@ def mocked_vectors(texts, *, query=False, batch_size=32):
     return [vector_blob([*values.get(t, (1, 0)), *([0] * (DIMENSION-2))]) for t in texts]
 
 
-class EmbeddingTests(unittest.TestCase):
+class E5EmbeddingTests(unittest.TestCase):
     def test_vector_validation_and_normalization(self):
         blob = vector_blob([3, 4] + [0] * 382)
         values = struct.unpack('<384f', blob)
@@ -96,7 +91,7 @@ class EmbeddingTests(unittest.TestCase):
 
 
 @unittest.skipUnless(importlib.util.find_spec('sqlite_vec'), 'optional sqlite-vec not installed')
-class SemanticTests(unittest.TestCase):
+class SemanticIndexTests(unittest.TestCase):
     def setUp(self):
         self.db = FurnitureDB(':memory:')
         self.addCleanup(self.db.close)
@@ -276,6 +271,20 @@ with FurnitureDB(sys.argv[1]) as db:
             with FurnitureDB(path) as db:
                 self.assertEqual(db.get_furniture(7)['description'], 'red')
                 self.assertEqual(db.connection.execute('PRAGMA user_version').fetchone()[0], 4)
+
+
+class SemanticScopeTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec('sqlite_vec'),'optional sqlite_vec absent')
+    def test_semantic_scope_filter_before_topk(self):
+        from ffxiv_furniture.semantic import SemanticIndex,vector_blob
+        with FurnitureDB(':memory:') as db:
+            for i,scope in [(1,'exterior'),(2,'interior'),(3,None)]:db.add_furniture(i,str(i),'visual description',scope=scope)
+            index=SemanticIndex(db,local_files_only=True)
+            # Explicit mocked inference; real sqlite-vec SQL/filtering exercised.
+            with patch.object(index.embedder,'embed',side_effect=lambda texts,**kw:[vector_blob([1]+[0]*383) for _ in texts]):
+                index.refresh()
+                self.assertEqual([r['furniture']['id'] for r in index.search('same appearance',top_k=1,scope='interior')],[2])
+                self.assertEqual([r['furniture']['id'] for r in index.search('same appearance',top_k=1,scope='exterior')],[1])
 
 
 if __name__ == '__main__':

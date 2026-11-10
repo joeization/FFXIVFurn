@@ -129,7 +129,7 @@ The illustration contains game-derived content and is not covered by the code/do
 
 ```bash
 python -m unittest discover -s tests -p 'test_catalog.py' -q
-python -m unittest discover -s tests -p 'test_distribution.py' -q
+python -m unittest discover -s tests -p 'test_bootstrap.py' -q
 python scripts/check_distribution.py
 # The full suite also requires local data, optional dependencies, and a GPU.
 # .venv/Scripts/python.exe -m unittest discover -s tests -q
