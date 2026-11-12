@@ -20,15 +20,26 @@ def _screen_sizes(data,offset):
     return all(flag==1 and math.isfinite(value) and 0<=value<=100 for flag,value in values)
 
 
+def file_content_stamp(path):
+    """Fingerprint bytes, not timestamps (Windows ctime can be creation time).
+
+    Hash on every lookup: even size, nanosecond times and inode together cannot
+    distinguish an in-place rewrite with restored timestamps. Streaming SHA-256
+    keeps memory bounded; the expensive mesh/material decoding remains cached.
+    """
+    with Path(path).open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
 def read_static_mesh_bounds(uexp_path):
-    """Parse (memoised per process): keyed by the given path + size/mtime of the .uexp and .uasset, so edited or re-extracted files are re-read.
-    Returns a fresh copy each call because callers annotate records (item_id, ...)."""
-    path=Path(uexp_path);a=path.stat();b=path.with_suffix('.uasset').stat()
-    return copy.deepcopy(_read_static_mesh_bounds_cached(str(path),a.st_mtime_ns,a.st_size,b.st_mtime_ns,b.st_size))
+    """Memoise by both package contents; return a caller-owned copy."""
+    path = Path(uexp_path)
+    return copy.deepcopy(_read_static_mesh_bounds_cached(
+        str(path), file_content_stamp(path), file_content_stamp(path.with_suffix('.uasset'))))
 
 
 @functools.lru_cache(maxsize=4096)
-def _read_static_mesh_bounds_cached(path,_m1,_s1,_m2,_s2):
+def _read_static_mesh_bounds_cached(path, _export_hash, _header_hash):
     return _read_static_mesh_bounds_uncached(path)
 
 

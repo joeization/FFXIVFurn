@@ -843,7 +843,8 @@ class RendererVersionTests(unittest.TestCase):
                 before = server._renderer_version()
                 p = d / "projection.py"
                 st = p.stat()
-                os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 1000000000))
+                p.write_text("# changed")  # same length, genuinely different renderer code
+                os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
                 after = server._renderer_version()
             self.assertNotEqual(
                 before,

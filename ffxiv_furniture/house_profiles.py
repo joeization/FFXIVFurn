@@ -148,11 +148,11 @@ def structure_record(root, suffix):
     """Read a current native structure directly, without private inventory JSON."""
     from pathlib import Path
     from .config import source_path
-    from .geometry import read_static_mesh_bounds
+    from .geometry import file_content_stamp
 
     path = source_path("interiors", root=root) / "HouseAssets/InteriorStyles" / suffix
     return _structure_record(
-        str(path.resolve()), path.stat().st_mtime_ns, path.with_suffix(".uasset").stat().st_mtime_ns
+        str(path.resolve()), file_content_stamp(path), file_content_stamp(path.with_suffix(".uasset"))
     )
 
 

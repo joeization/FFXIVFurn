@@ -105,14 +105,15 @@ def master_default_tint(path):
 
 
 def material_instance(path):
-    """Memoised per process (keyed by path + size/mtime of .uasset/.uexp); returns a deep copy so callers cannot corrupt the cache."""
+    """Memoise by package contents; return a caller-owned deep copy."""
     import copy
-    path=Path(path);a=path.stat();b=path.with_suffix('.uexp').stat()
-    return copy.deepcopy(_material_instance_cached(str(path),a.st_mtime_ns,a.st_size,b.st_mtime_ns,b.st_size))
+    from ffxiv_furniture.geometry import file_content_stamp
+    path=Path(path)
+    return copy.deepcopy(_material_instance_cached(str(path),file_content_stamp(path),file_content_stamp(path.with_suffix('.uexp'))))
 
 
 @__import__('functools').lru_cache(maxsize=8192)
-def _material_instance_cached(path,_m1,_s1,_m2,_s2):
+def _material_instance_cached(path,_header_hash,_export_hash):
     return _material_instance_uncached(Path(path))
 
 

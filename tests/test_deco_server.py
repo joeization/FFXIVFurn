@@ -230,6 +230,26 @@ class TopViewTests(unittest.TestCase):
 
 class RendererVersionTests(unittest.TestCase):
 
+    def test_same_size_restored_mtime_changes_dependency_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dependency = root / 'ffxiv_furniture/rendering/common.py'
+            dependency.parent.mkdir(parents=True)
+            dependency.write_bytes(b'old')
+            with patch.object(server, 'ROOT', root):
+                before = server._renderer_version()
+                stat = dependency.stat(); dependency.write_bytes(b'new')
+                os.utime(dependency, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+                self.assertNotEqual(server._renderer_version(), before)
+            catalog = root / 'catalog.sqlite3'
+            catalog.write_bytes(b'old')
+            fake = SimpleNamespace(cat=SimpleNamespace(path=catalog))
+            with patch.object(server, '_sess', fake):
+                before = server._renderer_version()
+                stat = catalog.stat(); catalog.write_bytes(b'new')
+                os.utime(catalog, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+                self.assertNotEqual(server._renderer_version(), before)
+
     def test_renderer_fingerprint_covers_helpers_and_tolerates_missing_maps(self):
         version = server._renderer_version()
         self.assertIn('common.py:', version)

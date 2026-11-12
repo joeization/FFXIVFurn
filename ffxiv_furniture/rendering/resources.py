@@ -3,11 +3,12 @@ from collections import OrderedDict
 from threading import RLock
 from pathlib import Path
 import numpy as np
+from ..geometry import file_content_stamp
 
 
 def file_stamp(path):
     try:
-        s=Path(path).stat();return (s.st_size,s.st_mtime_ns,s.st_ctime_ns)
+        return (file_content_stamp(path),)
     except FileNotFoundError:return None
 
 

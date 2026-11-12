@@ -684,8 +684,15 @@ def _renderer_version():
         for s in ("Small", "Medium", "Large")
         for ext in (".umap", ".uexp")
     )
+    catalog = getattr(getattr(_sess, 'cat', None), 'path', None)
+    if catalog is not None:
+        catalog = Path(catalog)
+        files.extend((catalog, catalog.with_name(catalog.name + '-wal')))
+    from ffxiv_furniture.geometry import file_content_stamp
+    # Hash bytes on each lookup, including the catalog: Windows ctime can be
+    # creation time, so a stat-gated digest would miss restored-mtime rewrites.
     return (
-        "|".join(f"{p.name}:{p.stat().st_mtime_ns if p.is_file() else 0}" for p in files)
+        "|".join(f"{p.name}:{file_content_stamp(p) if p.is_file() else 0}" for p in files)
         + f"|interior-assets:{BASE.stat().st_mtime_ns}"
     )
 

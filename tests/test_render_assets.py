@@ -122,6 +122,28 @@ class PhasmascapeSceneTests(unittest.TestCase):
                 )
 
 
+class MaterialInstanceCacheTests(unittest.TestCase):
+    def test_same_size_restored_mtime_invalidates_both_packages(self):
+        import os
+        from ffxiv_furniture.rendering import native
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'material.uasset'
+            export = path.with_suffix('.uexp')
+            path.write_bytes(b'head'); export.write_bytes(b'body')
+            def decode(p):
+                return {'bytes': p.read_bytes() + p.with_suffix('.uexp').read_bytes()}
+            with patch.object(native, '_material_instance_uncached', side_effect=decode):
+                previous = native.material_instance(path)
+                for target in (path, export):
+                    stat = target.stat()
+                    target.write_bytes(b'next')
+                    os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+                    current = native.material_instance(path)
+                    self.assertNotEqual(previous, current)
+                    self.assertEqual(current, decode(path))
+                    previous = current
+
+
 class PartitionDoorComponentTests(unittest.TestCase):
 
     def test_minimalist_partition_includes_native_hinged_leaf(self):
@@ -590,6 +612,25 @@ class AssetReuseTests(unittest.TestCase):
         (self.content / "Material.uasset").write_bytes(b"new higher-priority asset")
         b = self.clone(cache).load(42)
         self.assertIsNot(a, b)
+
+    def test_resource_cache_detects_same_size_rewrite_with_identical_mtime(self):
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'source.uexp'
+            path.write_bytes(b'old bytes')
+            stamp = path.stat()
+            cache = DecodedAssetCache()
+            result = {'vertices': np.zeros((3, 3))}
+            cache.put('mesh', result, {}, [path])
+            cached = cache.get('mesh')
+            assert cached is not None
+            self.assertIs(cached[0], result)
+            path.write_bytes(b'new bytes')
+            os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            # Simulate filesystems where even ctime/inode are unchanged.
+            with patch.object(Path, 'stat', return_value=stamp):
+                self.assertIsNone(cache.get('mesh'))
 
     def test_resource_cache_is_bounded(self):
         from ffxiv_furniture.rendering import assets

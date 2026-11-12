@@ -2,6 +2,8 @@
 
 import importlib.util
 import math
+import os
+from unittest.mock import patch
 import numpy as np
 import struct
 import tempfile
@@ -66,6 +68,42 @@ class NativeMeshGeometryTests(unittest.TestCase):
             p.write_bytes(b)
             with self.assertRaises(ValueError):read_static_mesh_bounds(p)
             with self.assertRaisesRegex(ValueError,'changed'):read_static_mesh_triangles(r)
+
+    def test_bounds_cache_detects_same_size_rewrite_with_identical_mtime(self):
+        from ffxiv_furniture import geometry
+
+        with tempfile.TemporaryDirectory() as temp:
+            p = self.save(temp, native_mesh_buffer())
+            with patch.object(geometry, '_read_static_mesh_bounds_uncached',
+                              wraps=geometry._read_static_mesh_bounds_uncached) as parse:
+                original = read_static_mesh_bounds(p)
+                self.assertEqual(read_static_mesh_bounds(p), original)
+                self.assertEqual(parse.call_count, 1)
+                stamp = p.stat()
+                data = bytearray(p.read_bytes())
+                # Translate all vertices and independent bounds along X.
+                for i in range(original['vertex_count']):
+                    at = original['vertex_buffer_offset'] + 16 + i * 12
+                    struct.pack_into('<f', data, at, struct.unpack_from('<f', data, at)[0] + 100)
+                struct.pack_into('<d', data, original['bounds_offset'], original['origin_cm'][0] + 100)
+                p.write_bytes(data)
+                os.utime(p, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+                self.assertEqual((p.stat().st_size, p.stat().st_mtime_ns),
+                                 (stamp.st_size, stamp.st_mtime_ns))
+                updated = read_static_mesh_bounds(p)
+                self.assertEqual(updated['local_min_m'], [1, 0, 0])
+                self.assertNotEqual(updated['source_sha256'], original['source_sha256'])
+                self.assertEqual(parse.call_count, 2)
+                updated['local_min_m'][0] = 999
+                self.assertEqual(read_static_mesh_bounds(p)['local_min_m'], [1, 0, 0])
+                self.assertEqual(parse.call_count, 2)
+                # Companion headers must also invalidate an otherwise warm entry.
+                header = p.with_suffix('.uasset')
+                stamp = header.stat()
+                header.write_bytes(b'BrokenMesh\0')
+                os.utime(header, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+                with self.assertRaises(ValueError):
+                    read_static_mesh_bounds(p)
 
     def test_triangle_support_not_bounding_box_top(self):
         vertices=[(0,0,.9),(2,0,.9),(0,2,.9),(0,0,1.02)]

@@ -9,6 +9,31 @@ from shapely.ops import unary_union
 from tests.support import needs_meshes
 from unittest.mock import patch
 
+class StructureRecordCacheTests(unittest.TestCase):
+    def test_same_size_restored_mtime_invalidates_both_packages(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from ffxiv_furniture.house_profiles import structure_record
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / 'HouseAssets/InteriorStyles/test.uexp'
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b'body')
+            header = path.with_suffix('.uasset'); header.write_bytes(b'head')
+            def decode(p):
+                return {'bytes': p.read_bytes() + p.with_suffix('.uasset').read_bytes()}
+            with patch('ffxiv_furniture.config.source_path', return_value=root), patch('ffxiv_furniture.geometry.read_static_mesh_bounds', side_effect=decode):
+                previous = structure_record(root, 'test.uexp')
+                for target in (path, header):
+                    stat = target.stat(); target.write_bytes(b'next')
+                    os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+                    current = structure_record(root, 'test.uexp')
+                    self.assertNotEqual(current, previous)
+                    self.assertEqual(current, decode(path))
+                    previous = current
+
+
 class OpeningOrientationTests(unittest.TestCase):
 
     def test_openings_follow_their_wall_including_wrapped_native_yaw(self):

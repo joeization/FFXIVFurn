@@ -8,6 +8,28 @@ from ffxiv_furniture.deco.core import Catalog, DecoError, Room, Session
 from pathlib import Path
 from tests.support import P, catalog, has_seed, needs_seed, read_layout, room, seed, session
 
+class CatalogFingerprintTests(unittest.TestCase):
+    def test_same_size_restored_mtime_changes_catalog_fingerprint(self):
+        import os
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'catalog.sqlite3'
+            db = sqlite3.connect(path)
+            db.execute('CREATE TABLE sample (value TEXT)')
+            db.execute("INSERT INTO sample VALUES ('old')")
+            db.commit()
+            cat = Catalog(path)
+            try:
+                before = cat.sha(); stat = path.stat()
+                db.execute("UPDATE sample SET value='new'"); db.commit()
+                self.assertEqual(path.stat().st_size, stat.st_size)
+                os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+                self.assertNotEqual(cat.sha(), before)
+                self.assertEqual(cat.sha(), cat.sha())
+            finally:
+                cat.db.close(); db.close()
+
+
 class SessionOperationTests(unittest.TestCase):
 
     def test_bottom_center_roundtrip_asymmetric(self):

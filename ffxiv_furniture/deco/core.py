@@ -148,9 +148,13 @@ class Catalog:
         self._emb = None
 
     def sha(self):
-        return hashlib.sha256(
-            f"{self.path.stat().st_size}:{self.path.stat().st_mtime_ns}".encode()
-        ).hexdigest()[:16]
+        from ffxiv_furniture.geometry import file_content_stamp
+        # Include uncheckpointed SQLite writes as well as the main database.
+        wal = self.path.with_name(self.path.name + '-wal')
+        stamps = [file_content_stamp(self.path)]
+        if wal.is_file():
+            stamps.append(file_content_stamp(wal))
+        return hashlib.sha256('|'.join(stamps).encode()).hexdigest()[:16]
 
     def item(self, item_id=None, name=None):
         key = item_id if item_id is not None else ("n", name)
